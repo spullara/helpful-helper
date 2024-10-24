@@ -1,138 +1,189 @@
-//
-//  ContentView.swift
-//  HelpfulHelper
-//
-//  Created by Sam Pullara on 10/24/24.
-//
-
 import SwiftUI
-import SwiftData
-import DockKit
 import AVFoundation
+import DockKit
+import SwiftData
+
+struct CameraPreviewView: UIViewRepresentable {
+    let session: AVCaptureSession
+    
+    class PreviewView: UIView {
+        override class var layerClass: AnyClass {
+            return AVCaptureVideoPreviewLayer.self
+        }
+        
+        var previewLayer: AVCaptureVideoPreviewLayer {
+            return layer as! AVCaptureVideoPreviewLayer
+        }
+    }
+    
+    func makeUIView(context: Context) -> PreviewView {
+        let view = PreviewView()
+        view.previewLayer.session = session
+        view.previewLayer.videoGravity = .resizeAspectFill
+        view.backgroundColor = .black
+        return view
+    }
+    
+    func updateUIView(_ uiView: PreviewView, context: Context) {
+        uiView.previewLayer.frame = uiView.bounds
+    }
+}
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var items: [Item]
     @State private var dockAccessoryManager = DockAccessoryManager.shared
-    @State private var captureSession: AVCaptureSession?
-
+    @State private var frontCaptureSession: AVCaptureSession?
+    @State private var backCaptureSession: AVCaptureSession?
+    
+    func setupCamera(position: AVCaptureDevice.Position) -> AVCaptureSession? {
+        let session = AVCaptureSession()
+        session.sessionPreset = .high
+        
+        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera,
+                                                 for: .video,
+                                                 position: position) else {
+            print("\(position) camera not available")
+            return nil
+        }
+        
+        do {
+            let input = try AVCaptureDeviceInput(device: camera)
+            if session.canAddInput(input) {
+                session.addInput(input)
+            }
+            
+            let videoOutput = AVCaptureVideoDataOutput()
+            if session.canAddOutput(videoOutput) {
+                session.addOutput(videoOutput)
+            }
+            
+            let metadataOutput = AVCaptureMetadataOutput()
+            if session.canAddOutput(metadataOutput) {
+                session.addOutput(metadataOutput)
+                metadataOutput.metadataObjectTypes = [.face]
+            }
+            
+            return session
+        } catch {
+            print("Error setting up capture session for \(position) camera: \(error)")
+            return nil
+        }
+    }
+    
     func test() {
         Task {
+            // Set up front camera
+            if let frontSession = setupCamera(position: .front) {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    frontSession.startRunning()
+                    DispatchQueue.main.async {
+                        self.frontCaptureSession = frontSession
+                    }
+                }
+            }
+            
+            // Set up back camera
+            if let backSession = setupCamera(position: .back) {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    backSession.startRunning()
+                    DispatchQueue.main.async {
+                        self.backCaptureSession = backSession
+                    }
+                }
+            }
+            
             do {
-                // Set up and start AVCaptureSession
-                let session = AVCaptureSession()
-                guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera,
-                                                                     for: .video,
-                                                                     position: .front) else {
-                                print("Front camera not available")
-                                return
-                            }
-                do {
-                    let input = try AVCaptureDeviceInput(device: camera)
-                    if session.canAddInput(input) {
-                        session.addInput(input)
+                // Monitor for dock accessories
+                print("Getting accessories...")
+                for await accessoryStateChange in try DockAccessoryManager.shared.accessoryStateChanges {
+                    guard let accessory = accessoryStateChange.accessory,
+                          accessoryStateChange.state == .docked else {
+                        continue
                     }
                     
-                    // Add video data output
-                    let videoOutput = AVCaptureVideoDataOutput()
-                    if session.canAddOutput(videoOutput) {
-                        session.addOutput(videoOutput)
-                    }
+                    print("Dock accessory connected: \(accessory.identifier)")
                     
-                    // Add metadata output for face detection
-                    let metadataOutput = AVCaptureMetadataOutput()
-                    if session.canAddOutput(metadataOutput) {
-                        session.addOutput(metadataOutput)
-                        // Configure metadata output to detect faces
-                        metadataOutput.metadataObjectTypes = [.face]
-                    }
-                    
-                    // Store the session
-                    self.captureSession = session
-                    
-                    // Get reference dimensions from the video connection
-                    let videoConnection = videoOutput.connection(with: .video)
-                    let referenceDimensions = CGSize(
-                        width: videoConnection?.videoMaxScaleAndCropFactor ?? 1920,
-                        height: videoConnection?.videoMaxScaleAndCropFactor ?? 1080
-                    )
-                    
-                    // Start the session on a background queue
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        session.startRunning()
-                    }
-                    
-                    // Monitor for dock accessories
-                    for await accessoryStateChange in try DockAccessoryManager.shared.accessoryStateChanges {
-                        guard let accessory = accessoryStateChange.accessory,
-                              accessoryStateChange.state == .docked else {
-                            continue
-                        }
+                    // Use front camera for tracking (you can modify this based on your needs)
+                    if let camera = AVCaptureDevice.default(.builtInWideAngleCamera,
+                                                          for: .video,
+                                                          position: .front) {
+                        let videoOutput = AVCaptureVideoDataOutput()
+                        let videoConnection = videoOutput.connection(with: .video)
+                        let referenceDimensions = CGSize(
+                            width: videoConnection?.videoMaxScaleAndCropFactor ?? 1920,
+                            height: videoConnection?.videoMaxScaleAndCropFactor ?? 1080
+                        )
                         
-                        print("Dock accessory connected: \(accessory.identifier)")
-                        
-                        // Create camera information for tracking
                         let cameraInfo = DockAccessory.CameraInformation(
                             captureDevice: camera.deviceType,
                             cameraPosition: camera.position,
-                            orientation: .portrait,  // Adjust based on actual orientation
+                            orientation: .portrait,
                             cameraIntrinsics: nil,
                             referenceDimensions: referenceDimensions
                         )
                         
-                        // System tracking will automatically start when a device is docked
-                        // You can observe tracking states if needed:
                         for await state in try accessory.trackingStates {
                             print("Tracking state updated: \(state.description)")
                             print("Tracked subjects: \(state.trackedSubjects.count)")
                         }
                     }
-                    
-                } catch {
-                    print("Error setting up capture session: \(error)")
                 }
+            } catch {
+                print("Error monitoring accessories: \(error)")
             }
         }
     }
-        
+    
     var body: some View {
-        NavigationSplitView {
-            List {
-                if DockAccessoryManager.shared.isSystemTrackingEnabled {
-                    Text("System Tracking Enabled")
-                        .onAppear(perform: test)
-                }
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
+        VStack {
+            if DockAccessoryManager.shared.isSystemTrackingEnabled {
+                Text("System Tracking Enabled")
+                    .onAppear(perform: test)
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
+        
+            // Front camera preview
+            VStack {
+                Text("Front Camera")
+                    .font(.caption)
+                if let session = frontCaptureSession {
+                    CameraPreviewView(session: session)
+                        .frame(height: 300)
+                        .cornerRadius(12)
+                } else {
+                    Text("Front camera unavailable")
+                        .frame(height: 300)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(12)
                 }
             }
-        } detail: {
-            Text("Select an item")
+            
+            // Back camera preview
+            VStack {
+                Text("Back Camera")
+                    .font(.caption)
+                if let session = backCaptureSession {
+                    CameraPreviewView(session: session)
+                        .frame(height: 300)
+                        .cornerRadius(12)
+                } else {
+                    Text("Back camera unavailable")
+                        .frame(height: 300)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(12)
+                }
+            }
         }
+        .padding()
     }
-
+    
     private func addItem() {
         withAnimation {
             let newItem = Item(timestamp: Date(), label: "New Item")
             modelContext.insert(newItem)
         }
     }
-
+    
     private func deleteItems(offsets: IndexSet) {
         withAnimation {
             for index in offsets {
