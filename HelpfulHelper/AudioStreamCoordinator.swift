@@ -29,6 +29,18 @@ struct Env {
     }
 }
 
+extension AVAudioFormat {
+    func debugDescription() -> String {
+        return """
+        Format:
+          - Sample Rate: \(sampleRate)
+          - Channel Count: \(channelCount)
+          - Common Format: \(commonFormat.rawValue)
+          - Stream Description: \(streamDescription.pointee)
+        """
+    }
+}
+
 class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObject {
     private var audioEngine: AVAudioEngine
     private var inputNode: AVAudioInputNode
@@ -43,11 +55,16 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
     
     // Format for OpenAI API (24kHz)
     private let apiFormat = AVAudioFormat(
-        commonFormat: .pcmFormatFloat32,
+        commonFormat: .pcmFormatInt16,
         sampleRate: 24000,
         channels: 1,
         interleaved: false
     )!  // Force unwrap since this is a known good format
+    
+    private let hardwareFormat = AVAudioFormat(
+            standardFormatWithSampleRate: 48000,
+            channels: 1
+        )!
     
     private var inputConverter: AVAudioConverter?
     private var outputConverter: AVAudioConverter?
@@ -82,9 +99,6 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
     }
     
     private func setupConverters() {
-        // Get the hardware input format (non-optional)
-        let hardwareFormat = inputNode.inputFormat(forBus: 0)
-        
         // Store the engine format
         self.engineFormat = hardwareFormat
         
@@ -94,24 +108,28 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
     }
     
     private func setupAudioEngine() {
-        // Get the hardware input format
-        let hardwareFormat = inputNode.inputFormat(forBus: 0)
-        
         // Setup player node
         audioEngine.attach(playerNode)
         
+        print(hardwareFormat)
+        print(apiFormat)
+
         // Connect player to output using hardware format
         audioEngine.connect(playerNode, to: audioEngine.mainMixerNode, format: hardwareFormat)
-        
-        // Setup input tap with hardware format
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) { [weak self] buffer, time in
-            self?.processAudioBuffer(buffer)
-        }
         
         // Prepare and start engine
         audioEngine.prepare()
         do {
             try audioEngine.start()
+            print("Audio engine started")
+            print(inputNode.inputFormat(forBus: 0))
+
+            // Setup input tap with hardware format
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) { [weak self] buffer, time in
+                print("Got audio buffer")
+                self?.processAudioBuffer(buffer)
+            }
+            
         } catch {
             print("Failed to start audio engine: \(error)")
         }
@@ -123,6 +141,7 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
                 pcmFormat: apiFormat,
                 frameCapacity: AVAudioFrameCount(Double(sourceBuffer.frameLength) * 24000 / Double(sourceBuffer.format.sampleRate))
               ) else {
+            print("Failed to create conversion buffer")
             return nil
         }
         
@@ -148,7 +167,7 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
         // Get the audio data from the converted buffer
         let frameCount = Int(convertedBuffer.frameLength)
         let channelCount = Int(convertedBuffer.format.channelCount)
-        let channelData = convertedBuffer.floatChannelData?[0]
+        let channelData = convertedBuffer.int16ChannelData?[0]
         
         guard let data = channelData else { return }
         let audioData = Data(bytes: data, count: frameCount * channelCount * 4)
@@ -164,6 +183,9 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: audioAppend),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
+        
+        print("Sending audio data")
+        print(jsonString)
         
         let message = URLSessionWebSocketTask.Message.string(jsonString)
         websocket.send(message) { error in
@@ -219,7 +241,7 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
             print("Failed to convert received audio data")
             return
         }
-        
+        print("Received audio data: \(audioData.count) bytes")
         playerNode.scheduleBuffer(buffer, completionHandler: nil)
         playerNode.play()
     }
@@ -246,12 +268,11 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
             "type": "session.update",
             "session": [
                 "turn_detection": ["type": "server_vad"],
-                "input_audio_format": "g711_ulaw",
-                "output_audio_format": "g711_ulaw",
-                "voice": "alloy",
+                "input_audio_format": "pcm16",
+                "output_audio_format": "pcm16",
+                "voice": "shimmer",
                 "instructions": systemMessage,
-                "modalities": ["text", "audio"],
-                "temperature": 0.8
+                "modalities": ["text", "audio"]
             ]
         ]
         
@@ -296,12 +317,15 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
         case "response.audio.delta":
             if let delta = json["delta"] as? String,
                let audioData = Data(base64Encoded: delta) {
+                print("Received audio delta")
                 playAudioData(audioData)
             }
         case "session.updated":
             print("Session updated successfully")
+            startRecording()
         default:
             print("Received message of type: \(type)")
+            print("JSON: \(json)")
         }
     }
     
