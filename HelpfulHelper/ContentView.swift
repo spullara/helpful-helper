@@ -35,16 +35,18 @@ struct ContentView: View {
     @State private var dockAccessoryManager = DockAccessoryManager.shared
     @State private var frontCaptureSession: AVCaptureSession?
     @State private var backCaptureSession: AVCaptureSession?
+    @State private var frontMetadataOutput: AVCaptureMetadataOutput?
     
-    func setupCamera(position: AVCaptureDevice.Position) -> AVCaptureSession? {
+    func setupCamera(position: AVCaptureDevice.Position) -> (AVCaptureSession?, AVCaptureMetadataOutput?) {
         let session = AVCaptureSession()
         session.sessionPreset = .high
+        var metadataOutput: AVCaptureMetadataOutput?
         
         guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera,
                                                  for: .video,
                                                  position: position) else {
             print("\(position) camera not available")
-            return nil
+            return (nil, nil)
         }
         
         do {
@@ -58,23 +60,27 @@ struct ContentView: View {
                 session.addOutput(videoOutput)
             }
             
-            let metadataOutput = AVCaptureMetadataOutput()
-            if session.canAddOutput(metadataOutput) {
-                session.addOutput(metadataOutput)
-                metadataOutput.metadataObjectTypes = [.face]
+            // Create and configure metadata output
+            let metadata = AVCaptureMetadataOutput()
+            if session.canAddOutput(metadata) {
+                session.addOutput(metadata)
+                metadata.metadataObjectTypes = [.face]
+                metadataOutput = metadata
             }
             
-            return session
+            return (session, metadataOutput)
         } catch {
             print("Error setting up capture session for \(position) camera: \(error)")
-            return nil
+            return (nil, nil)
         }
     }
     
     func test() {
         Task {
             // Set up front camera
-            if let frontSession = setupCamera(position: .front) {
+            let (frontSession, frontMetadata) = setupCamera(position: .front)
+            if let frontSession = frontSession {
+                self.frontMetadataOutput = frontMetadata
                 DispatchQueue.global(qos: .userInitiated).async {
                     frontSession.startRunning()
                     DispatchQueue.main.async {
@@ -84,7 +90,8 @@ struct ContentView: View {
             }
             
             // Set up back camera
-            if let backSession = setupCamera(position: .back) {
+            let (backSession, _) = setupCamera(position: .back)
+            if let backSession = backSession {
                 DispatchQueue.global(qos: .userInitiated).async {
                     backSession.startRunning()
                     DispatchQueue.main.async {
@@ -104,25 +111,23 @@ struct ContentView: View {
                     
                     print("Dock accessory connected: \(accessory.identifier)")
                     
-                    // Use front camera for tracking (you can modify this based on your needs)
-                    if let camera = AVCaptureDevice.default(.builtInWideAngleCamera,
-                                                          for: .video,
-                                                          position: .front) {
-                        let videoOutput = AVCaptureVideoDataOutput()
-                        let videoConnection = videoOutput.connection(with: .video)
-                        let referenceDimensions = CGSize(
-                            width: videoConnection?.videoMaxScaleAndCropFactor ?? 1920,
-                            height: videoConnection?.videoMaxScaleAndCropFactor ?? 1080
-                        )
+                    // Configure accessory to use front camera
+                    if let frontSession = frontCaptureSession {
+                        // Get the front camera device
+                        guard let frontCamera = (frontSession.inputs.first as? AVCaptureDeviceInput)?.device else {
+                            continue
+                        }
                         
+                        // Create camera information for the front camera
                         let cameraInfo = DockAccessory.CameraInformation(
-                            captureDevice: camera.deviceType,
-                            cameraPosition: camera.position,
+                            captureDevice: frontCamera.deviceType,
+                            cameraPosition: .front,  // Explicitly specify front camera
                             orientation: .portrait,
                             cameraIntrinsics: nil,
-                            referenceDimensions: referenceDimensions
+                            referenceDimensions: CGSize(width: 1920, height: 1080)
                         )
                         
+                        // Monitor tracking states
                         for await state in try accessory.trackingStates {
                             print("Tracking state updated: \(state.description)")
                             print("Tracked subjects: \(state.trackedSubjects.count)")
@@ -175,21 +180,6 @@ struct ContentView: View {
             }
         }
         .padding()
-    }
-    
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date(), label: "New Item")
-            modelContext.insert(newItem)
-        }
-    }
-    
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
-        }
     }
 }
 
