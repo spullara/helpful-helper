@@ -5,22 +5,39 @@ import SwiftData
 
 struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
+    let videoLayer: AVCaptureVideoPreviewLayer
+    
+    init(session: AVCaptureSession, videoLayer: AVCaptureVideoPreviewLayer) {
+        self.session = session
+        self.videoLayer = videoLayer
+    }
     
     class PreviewView: UIView {
-        override class var layerClass: AnyClass {
-            return AVCaptureVideoPreviewLayer.self
+        var previewLayer: AVCaptureVideoPreviewLayer
+        
+        init(layer: AVCaptureVideoPreviewLayer) {
+            self.previewLayer = layer
+            super.init(frame: .zero)
+            setupLayer()
         }
         
-        var previewLayer: AVCaptureVideoPreviewLayer {
-            return layer as! AVCaptureVideoPreviewLayer
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+        
+        private func setupLayer() {
+            layer.addSublayer(previewLayer)
+            backgroundColor = .black
+        }
+        
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            previewLayer.frame = bounds
         }
     }
     
     func makeUIView(context: Context) -> PreviewView {
-        let view = PreviewView()
-        view.previewLayer.session = session
-        view.previewLayer.videoGravity = .resizeAspectFill
-        view.backgroundColor = .black
+        let view = PreviewView(layer: videoLayer)
         return view
     }
     
@@ -33,70 +50,114 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var items: [Item]
     @State private var dockAccessoryManager = DockAccessoryManager.shared
-    @State private var frontCaptureSession: AVCaptureSession?
-    @State private var backCaptureSession: AVCaptureSession?
+    @State private var multiCamSession: AVCaptureMultiCamSession?
+    @State private var frontPreviewLayer: AVCaptureVideoPreviewLayer?
+    @State private var backPreviewLayer: AVCaptureVideoPreviewLayer?
     @State private var frontMetadataOutput: AVCaptureMetadataOutput?
     
-    func setupCamera(position: AVCaptureDevice.Position) -> (AVCaptureSession?, AVCaptureMetadataOutput?) {
-        let session = AVCaptureSession()
-        session.sessionPreset = .high
+    func setupMultiCamSession() -> (AVCaptureMultiCamSession?, AVCaptureVideoPreviewLayer?, AVCaptureVideoPreviewLayer?, AVCaptureMetadataOutput?) {
+        // Check if device supports multi cam
+        guard AVCaptureMultiCamSession.isMultiCamSupported else {
+            print("MultiCam not supported on this device")
+            return (nil, nil, nil, nil)
+        }
+        
+        let session = AVCaptureMultiCamSession()
+        
+        // Start configuration
+        session.beginConfiguration()
+        defer { session.commitConfiguration() }
+        
+        var frontPreviewLayer: AVCaptureVideoPreviewLayer?
+        var backPreviewLayer: AVCaptureVideoPreviewLayer?
         var metadataOutput: AVCaptureMetadataOutput?
         
-        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera,
-                                                 for: .video,
-                                                 position: position) else {
-            print("\(position) camera not available")
-            return (nil, nil)
+        // Setup back camera
+        guard let backCamera = AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back),
+              let backDeviceInput = try? AVCaptureDeviceInput(device: backCamera) else {
+            print("Unable to initialize back camera")
+            return (nil, nil, nil, nil)
         }
         
-        do {
-            let input = try AVCaptureDeviceInput(device: camera)
-            if session.canAddInput(input) {
-                session.addInput(input)
-            }
-            
-            let videoOutput = AVCaptureVideoDataOutput()
-            if session.canAddOutput(videoOutput) {
-                session.addOutput(videoOutput)
-            }
-            
-            // Create and configure metadata output
-            let metadata = AVCaptureMetadataOutput()
-            if session.canAddOutput(metadata) {
-                session.addOutput(metadata)
-                metadata.metadataObjectTypes = [.face]
-                metadataOutput = metadata
-            }
-            
-            return (session, metadataOutput)
-        } catch {
-            print("Error setting up capture session for \(position) camera: \(error)")
-            return (nil, nil)
+        guard session.canAddInput(backDeviceInput) else {
+            print("Unable to add back camera input")
+            return (nil, nil, nil, nil)
         }
+        session.addInput(backDeviceInput)
+        
+        let backOutput = AVCaptureVideoDataOutput()
+        guard session.canAddOutput(backOutput) else {
+            print("Unable to add back camera output")
+            return (nil, nil, nil, nil)
+        }
+        session.addOutput(backOutput)
+        
+        // Setup back preview layer
+        let backLayer = AVCaptureVideoPreviewLayer(sessionWithNoConnection: session)
+        backLayer.videoGravity = .resizeAspectFill
+        
+        // Create back camera preview layer connection
+        let backConnection = AVCaptureConnection(inputPort: backDeviceInput.ports[0], videoPreviewLayer: backLayer)
+        backConnection.videoOrientation = .portrait
+        session.addConnection(backConnection)
+        backPreviewLayer = backLayer
+        
+        // Setup front camera
+        guard let frontCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
+              let frontDeviceInput = try? AVCaptureDeviceInput(device: frontCamera) else {
+            print("Unable to initialize front camera")
+            return (session, nil, backPreviewLayer, nil)
+        }
+        
+        guard session.canAddInput(frontDeviceInput) else {
+            print("Unable to add front camera input")
+            return (session, nil, backPreviewLayer, nil)
+        }
+        session.addInput(frontDeviceInput)
+        
+        let frontOutput = AVCaptureVideoDataOutput()
+        guard session.canAddOutput(frontOutput) else {
+            print("Unable to add front camera output")
+            return (session, nil, backPreviewLayer, nil)
+        }
+        session.addOutput(frontOutput)
+        
+        // Setup front preview layer
+        let frontLayer = AVCaptureVideoPreviewLayer(sessionWithNoConnection: session)
+        frontLayer.videoGravity = .resizeAspectFill
+        
+        // Create front camera preview layer connection
+        let frontConnection = AVCaptureConnection(inputPort: frontDeviceInput.ports[0], videoPreviewLayer: frontLayer)
+        frontConnection.videoOrientation = .portrait
+        session.addConnection(frontConnection)
+        frontPreviewLayer = frontLayer
+        
+        // Setup metadata output for face detection
+        let metadata = AVCaptureMetadataOutput()
+        if session.canAddOutput(metadata) {
+            session.addOutput(metadata)
+            metadata.metadataObjectTypes = [.face]
+            metadataOutput = metadata
+        }
+        
+        print("MultiCam session setup completed")
+        return (session, frontPreviewLayer, backPreviewLayer, metadataOutput)
     }
     
     func test() {
         Task {
-            // Set up front camera
-            let (frontSession, frontMetadata) = setupCamera(position: .front)
-            if let frontSession = frontSession {
-                self.frontMetadataOutput = frontMetadata
-                DispatchQueue.global(qos: .userInitiated).async {
-                    frontSession.startRunning()
-                    DispatchQueue.main.async {
-                        self.frontCaptureSession = frontSession
-                    }
-                }
-            }
+            let (session, frontLayer, backLayer, frontMetadata) = setupMultiCamSession()
             
-            // Set up back camera
-            let (backSession, _) = setupCamera(position: .back)
-            if let backSession = backSession {
+            if let session = session {
+                DispatchQueue.main.async {
+                    self.multiCamSession = session
+                    self.frontPreviewLayer = frontLayer
+                    self.backPreviewLayer = backLayer
+                    self.frontMetadataOutput = frontMetadata
+                }
+                
                 DispatchQueue.global(qos: .userInitiated).async {
-                    backSession.startRunning()
-                    DispatchQueue.main.async {
-                        self.backCaptureSession = backSession
-                    }
+                    session.startRunning()
                 }
             }
             
@@ -111,27 +172,10 @@ struct ContentView: View {
                     
                     print("Dock accessory connected: \(accessory.identifier)")
                     
-                    // Configure accessory to use front camera
-                    if let frontSession = frontCaptureSession {
-                        // Get the front camera device
-                        guard let frontCamera = (frontSession.inputs.first as? AVCaptureDeviceInput)?.device else {
-                            continue
-                        }
-                        
-                        // Create camera information for the front camera
-                        let cameraInfo = DockAccessory.CameraInformation(
-                            captureDevice: frontCamera.deviceType,
-                            cameraPosition: .front,  // Explicitly specify front camera
-                            orientation: .portrait,
-                            cameraIntrinsics: nil,
-                            referenceDimensions: CGSize(width: 1920, height: 1080)
-                        )
-                        
-                        // Monitor tracking states
-                        for await state in try accessory.trackingStates {
-                            print("Tracking state updated: \(state.description)")
-                            print("Tracked subjects: \(state.trackedSubjects.count)")
-                        }
+                    // Monitor tracking states
+                    for await state in try accessory.trackingStates {
+                        print("Tracking state updated: \(state.description)")
+                        print("Tracked subjects: \(state.trackedSubjects.count)")
                     }
                 }
             } catch {
@@ -146,13 +190,14 @@ struct ContentView: View {
                 Text("System Tracking Enabled")
                     .onAppear(perform: test)
             }
-        
+            
             // Front camera preview
             VStack {
                 Text("Front Camera")
                     .font(.caption)
-                if let session = frontCaptureSession {
-                    CameraPreviewView(session: session)
+                if let session = multiCamSession,
+                   let layer = frontPreviewLayer {
+                    CameraPreviewView(session: session, videoLayer: layer)
                         .frame(height: 300)
                         .cornerRadius(12)
                 } else {
@@ -167,8 +212,9 @@ struct ContentView: View {
             VStack {
                 Text("Back Camera")
                     .font(.caption)
-                if let session = backCaptureSession {
-                    CameraPreviewView(session: session)
+                if let session = multiCamSession,
+                   let layer = backPreviewLayer {
+                    CameraPreviewView(session: session, videoLayer: layer)
                         .frame(height: 300)
                         .cornerRadius(12)
                 } else {
