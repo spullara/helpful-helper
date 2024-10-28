@@ -6,9 +6,10 @@ import SwiftData
 // MARK: - Content View
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+//    @Query private var items: [Item]
     @StateObject private var audioCoordinator = AudioStreamCoordinator()
 //    @StateObject private var sessionCoordinator = CameraSessionCoordinator()
+//    @State private var loopBackTest = AudioLoopbackTest()
     @State private var isRecording = false
     
     var body: some View {
