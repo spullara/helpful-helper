@@ -92,7 +92,7 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
     
     private func setupConverters() {
         // Create converters using the hardware format
-        inputConverter = AVAudioConverter(from: audioEngine.inputNode.outputFormat(forBus: 0), to: apiFormat)
+        inputConverter = AVAudioConverter(from: audioEngine.outputNode.outputFormat(forBus: 0), to: apiFormat)
         outputConverter = AVAudioConverter(from: apiFormat, to: audioEngine.inputNode.inputFormat(forBus: 0))
     }
     
