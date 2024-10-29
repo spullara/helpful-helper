@@ -1,5 +1,5 @@
 //
-//  AudioRecordingViewModel.swift
+//  AudioRecordingViewModel2.swift
 //  HelpfulHelper
 //
 //  Created by Sam Pullara on 10/28/24.
@@ -10,8 +10,8 @@ import SwiftUI
 import AVFoundation
 
 // MARK: - Audio Recording View Model
-class AudioRecordingViewModel: ObservableObject {
-    private let audioService: AudioServiceProtocol
+class AudioRecordingViewModel2: ObservableObject {
+    private let audioService: AudioServiceProtocol2
     
     @Published var isRecording = false
     @Published var recordedAudios: [String] = []
@@ -19,7 +19,7 @@ class AudioRecordingViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var showError = false
     
-    init(audioService: AudioServiceProtocol = AudioService()) {
+    init(audioService: AudioServiceProtocol2 = AudioService2()) {
         self.audioService = audioService
     }
     
@@ -67,7 +67,7 @@ class AudioRecordingViewModel: ObservableObject {
     }
     
     private func handleError(_ error: Error) {
-        if let audioError = error as? AudioProcessingError {
+        if let audioError = error as? AudioProcessingError2 {
             switch audioError {
             case .engineNotRunning:
                 errorMessage = "Audio engine failed to start"
@@ -89,8 +89,92 @@ class AudioRecordingViewModel: ObservableObject {
     }
 }
 
+// MARK: - Audio Service Protocol
+protocol AudioServiceProtocol2 {
+    func startRecording() throws
+    func stopRecording() throws -> String
+    func playAudio(base64EncodedString: String) throws
+}
+
+// MARK: - Audio Processing Errors
+enum AudioProcessingError2: Error {
+    case engineNotRunning
+    case formatConversionFailed
+    case invalidBase64String
+    case audioEngineSetupFailed
+    case recordingInProgress
+    case noRecordingInProgress
+}
+
+// MARK: - Audio Service Implementation
+class AudioService2: AudioServiceProtocol2 {
+    private let recorder: AudioRecorder
+    private let player: AudioPlayer
+    private var isRecording = false
+    
+    init() {
+        self.recorder = AudioRecorder()
+        self.player = AudioPlayer()
+    }
+    
+    func startRecording() throws {
+        guard !isRecording else {
+            throw AudioProcessingError2.recordingInProgress
+        }
+        
+        Task {
+            do {
+                try await recorder.startRecording()
+                DispatchQueue.main.async {
+                    self.isRecording = true
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isRecording = false
+                }
+            }
+        }
+    }
+    
+    func stopRecording() throws -> String {
+        guard isRecording else {
+            throw AudioProcessingError2.noRecordingInProgress
+        }
+        
+        isRecording = false
+        return try recorder.stopRecording()
+    }
+    
+    func playAudio(base64EncodedString: String) throws {
+        Task {
+            do {
+                try await player.playAudio(base64EncodedString)
+            } catch {
+            }
+        }
+    }
+    
+    private func handleError(_ error: Error) throws {
+        if let audioError = error as? AudioError {
+            switch audioError {
+            case .noInputAvailable, .formatNotAvailable:
+                throw AudioProcessingError2.audioEngineSetupFailed
+            case .converterCreationFailed, .converterNotPrepared, .bufferCreationFailed, .conversionFailed:
+                throw AudioProcessingError2.formatConversionFailed
+            case .invalidBase64String:
+                throw AudioProcessingError2.invalidBase64String
+            case .invalidBufferData, .noRecordingData:
+                throw AudioProcessingError2.engineNotRunning
+            case .audioSessionConfigurationFailed:
+                throw AudioProcessingError2.audioEngineSetupFailed
+            }
+        }
+        throw error
+    }
+}
+
 // MARK: - Custom UI Components
-struct RecordButton: View {
+struct RecordButton2: View {
     let isRecording: Bool
     let action: () -> Void
     
@@ -108,7 +192,7 @@ struct RecordButton: View {
     }
 }
 
-struct AudioListItem: View {
+struct AudioListItem2: View {
     let index: Int
     let isPlaying: Bool
     let onPlay: () -> Void
@@ -131,8 +215,8 @@ struct AudioListItem: View {
 }
 
 // MARK: - Main View
-struct AudioServiceContentView: View {
-    @StateObject private var viewModel = AudioRecordingViewModel()
+struct AudioServiceContentView2: View {
+    @StateObject private var viewModel = AudioRecordingViewModel2()
     
     var body: some View {
         NavigationView {
@@ -140,7 +224,7 @@ struct AudioServiceContentView: View {
                 Spacer()
                 
                 // Recording button
-                RecordButton(
+                RecordButton2(
                     isRecording: viewModel.isRecording,
                     action: viewModel.toggleRecording
                 )
@@ -154,7 +238,7 @@ struct AudioServiceContentView: View {
                     ScrollView {
                         LazyVStack(spacing: 10) {
                             ForEach(viewModel.recordedAudios.indices, id: \.self) { index in
-                                AudioListItem(
+                                AudioListItem2(
                                     index: index,
                                     isPlaying: viewModel.currentlyPlaying == index,
                                     onPlay: { viewModel.playAudio(at: index) }
@@ -178,10 +262,11 @@ struct AudioServiceContentView: View {
 }
 
 // MARK: - Preview Provider
-struct AudioServiceApp: App {
+@main
+struct AudioServiceApp2: App {
     var body: some Scene {
         WindowGroup {
-            AudioServiceContentView()
+            AudioServiceContentView2()
         }
     }
 }

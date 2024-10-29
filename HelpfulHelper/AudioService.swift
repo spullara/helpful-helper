@@ -60,7 +60,6 @@ protocol AudioServiceProtocol {
     func playAudio(base64EncodedString: String) throws
 }
 
-// MARK: - Main Audio Service Implementation
 class AudioService: AudioServiceProtocol {
     private let engine = AVAudioEngine()
     private let bufferAccumulator: AudioBufferProvider
@@ -95,17 +94,21 @@ class AudioService: AudioServiceProtocol {
         
         audioConverter = converter
         
+        // Calculate buffer size based on target sample rate
         let bufferSize = AVAudioFrameCount(AudioFormatConstants.targetSampleRate * 0.1) // 100ms buffer
         
         input.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, _ in
             guard let self = self, self.isRecording else { return }
             
-            let convertedBuffer = AVAudioPCMBuffer(
+            // Calculate the correct frame capacity for the converted buffer
+            let targetFrameCapacity = AVAudioFrameCount(
+                Double(buffer.frameLength) * (targetFormat.sampleRate / inputFormat.sampleRate)
+            )
+            
+            guard let convertedBuffer = AVAudioPCMBuffer(
                 pcmFormat: targetFormat,
-                frameCapacity: AVAudioFrameCount(
-                    Double(buffer.frameLength) * (targetFormat.sampleRate / inputFormat.sampleRate)
-                )
-            )!
+                frameCapacity: targetFrameCapacity
+            ) else { return }
             
             var error: NSError?
             let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
@@ -159,7 +162,7 @@ class AudioService: AudioServiceProtocol {
             throw AudioProcessingError.invalidBase64String
         }
         
-        // First create a buffer in our source format (24k PCM Int16)
+        // Create source format matching our recorded format
         let sourceFormat = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
             sampleRate: AudioFormatConstants.targetSampleRate,
@@ -175,13 +178,20 @@ class AudioService: AudioServiceProtocol {
             throw AudioProcessingError.formatConversionFailed
         }
         
-        // Create source buffer
-        let bytesPerFrame = 2 * AudioFormatConstants.targetChannels // 2 bytes per Int16 sample
+        // Create source buffer with the recorded audio
+        let bytesPerFrame = 2 * Int(AudioFormatConstants.targetChannels) // 2 bytes per Int16 sample
         let frameCount = UInt32(audioData.count) / UInt32(bytesPerFrame)
-        let sourceBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: frameCount)!
+        
+        guard let sourceBuffer = AVAudioPCMBuffer(
+            pcmFormat: sourceFormat,
+            frameCapacity: frameCount
+        ) else {
+            throw AudioProcessingError.formatConversionFailed
+        }
+        
         sourceBuffer.frameLength = frameCount
         
-        // Fill source buffer
+        // Fill source buffer with the audio data
         audioData.withUnsafeBytes { rawBufferPointer in
             if let int16BufferPointer = rawBufferPointer.bindMemory(to: Int16.self).baseAddress {
                 sourceBuffer.int16ChannelData?.pointee.update(from: int16BufferPointer, count: Int(frameCount))
@@ -199,14 +209,12 @@ class AudioService: AudioServiceProtocol {
             throw AudioProcessingError.formatConversionFailed
         }
         
-        // Convert the audio
+        // Convert the audio to hardware format
         var error: NSError?
-        let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
+        converter.convert(to: outputBuffer, error: &error) { inNumPackets, outStatus in
             outStatus.pointee = .haveData
             return sourceBuffer
         }
-        
-        converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
         
         if let error = error {
             throw AudioProcessingError.formatConversionFailed
@@ -226,6 +234,7 @@ class AudioService: AudioServiceProtocol {
                 self?.engine.detach(player)
             }
         }
+        
         player.play()
     }
 }
