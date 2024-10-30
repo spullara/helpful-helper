@@ -186,14 +186,20 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
     private var captureCompletion: ((Result<Data, CameraSessionError>) -> Void)?
     private var captureTimer: Timer?
     private var isCapturing = false
+    private var capturingCamera: AVCaptureDevice.Position?
     
     func captureImage(from camera: String) async throws -> Data {
+        print("Attempting to capture image from \(camera) camera")
         return try await withCheckedThrowingContinuation { continuation in
             let videoOutput: AVCaptureVideoDataOutput?
+            let cameraPosition: AVCaptureDevice.Position
+            
             if camera == "front" {
                 videoOutput = frontVideoOutput
+                cameraPosition = .front
             } else if camera == "back" {
                 videoOutput = backVideoOutput
+                cameraPosition = .back
             } else {
                 continuation.resume(throwing: CameraSessionError.invalidCamera)
                 return
@@ -205,13 +211,12 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
             }
             
             self.isCapturing = true
-            
+            self.capturingCamera = cameraPosition
             self.captureCompletion = { [weak self] result in
-                // Only process if we're still capturing
                 guard let self = self, self.isCapturing else { return }
                 
-                // Reset capture state
                 self.isCapturing = false
+                self.capturingCamera = nil
                 self.captureTimer?.invalidate()
                 self.captureTimer = nil
                 self.captureCompletion = nil
@@ -224,20 +229,33 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
                 }
             }
             
-            // Set up a timeout to cancel the capture after a short duration
             self.captureTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
                 guard let self = self, self.isCapturing else { return }
                 self.isCapturing = false
                 self.captureCompletion?(.failure(.captureTimeout))
+            }
+            
+            // Ensure we're capturing from the correct camera
+            DispatchQueue.main.async {
+                guard let connection = output.connection(with: .video) else {
+                    self.captureCompletion?(.failure(.captureFailed))
+                    return
+                }
+                connection.videoOrientation = .portrait
+                connection.isVideoMirrored = (cameraPosition == .front)
             }
         }
     }
     
     // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        // Only process if we're actively capturing and have a completion handler
-        guard isCapturing, let captureCompletion = self.captureCompletion else { return }
+        guard isCapturing, 
+              let captureCompletion = self.captureCompletion,
+              let capturingCamera = self.capturingCamera,
+              connection.inputPorts.first?.sourceDevicePosition == capturingCamera else { return }
         
+        print("Capturing output from camera: \(connection.inputPorts.first?.sourceDevicePosition == .front ? "front" : "back")")
+
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             captureCompletion(.failure(.captureFailed))
             return
