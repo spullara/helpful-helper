@@ -58,6 +58,8 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         // Convert samples to Data
         let audioData = Data(bytes: samples, count: samples.count * 2) // 2 bytes per Int16
         
+        print("Got \(audioData.count) bytes of audio")
+        
         // Convert to base64
         let base64Audio = audioData.base64EncodedString()
         
@@ -88,7 +90,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         }
         
         // Play the audio using AudioManager
-        try? audioManager?.play(buffers: [samples])
+        try? audioManager?.play(samples: samples)
     }
     
     private func setupWebSocket() {

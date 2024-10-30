@@ -61,6 +61,8 @@ class AudioManager {
             object: nil
         )
         
+        try? connectNodes()
+        
         logActivity("Audio Manager initialized")
     }
     
@@ -119,7 +121,9 @@ class AudioManager {
 
         // FINAL OUTPUT:
         engine.connect(playerNode, to: engine.mainMixerNode, format: hardwareOutputFormat)
-        
+
+        engine.prepare()
+
         logActivity("Audio nodes connected")
     }
     
@@ -128,8 +132,6 @@ class AudioManager {
         
         logActivity("Starting recording...")
         
-        try connectNodes()
-
         let hardwareInputFormat = inputNode.inputFormat(forBus: 0)
 
         converterNode.installTap(onBus: 0, bufferSize: 8192, format: hardwareInputFormat) { [weak self] buffer, time in
@@ -156,9 +158,11 @@ class AudioManager {
             let numFrames = Int(convertedBuffer.frameLength)
             let samples = Array(UnsafeBufferPointer(start: int16ChannelData[0], count: numFrames))
             self.processingCallback(samples)
+            try? self.play(samples: samples)
         }
         
         try engine.start()
+        playerNode.play()
         isRecording = true
         logActivity("Recording started")
     }
@@ -173,54 +177,33 @@ class AudioManager {
         logActivity("Recording stopped")
     }
     
-    func play(buffers: [[Int16]]) throws {
-        guard !isPlaying else { return }
-        
-        logActivity("Starting playback...")
-        
-        try connectNodes()
-
+    func play(samples: [Int16]) throws {
         let hardwareOutputFormat = engine.outputNode.outputFormat(forBus: 0)
         let processingToOutputConverter = AVAudioConverter(from: processingFormat, to: hardwareOutputFormat)!
         
-        for (index, samples) in buffers.enumerated() {
-            guard let buffer = createBuffer(from: samples) else {
-                logActivity("Failed to create buffer from samples")
-                continue
-            }
-            
-            let frameCount = AVAudioFrameCount(buffer.frameLength)
-            guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: hardwareOutputFormat, frameCapacity: frameCount) else { continue }
-            
-            var error: NSError?
-            let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
-                outStatus.pointee = .haveData
-                return buffer
-            }
-            
-            let status = processingToOutputConverter.convert(to: convertedBuffer, error: &error, withInputFrom: inputBlock)
-            
-            if status == .error || error != nil {
-                logActivity("Conversion failed: \(error?.localizedDescription ?? "unknown error")")
-                continue
-            }
-            
-            if index == buffers.count - 1 {
-                playerNode.scheduleBuffer(convertedBuffer) { [weak self] in
-                    DispatchQueue.main.async {
-                        self?.stopPlayback()
-                        self?.logActivity("Playback completed")
-                    }
-                }
-            } else {
-                playerNode.scheduleBuffer(convertedBuffer)
-            }
-        }        
-        try engine.start()
-        playerNode.play()
-        isPlaying = true
+        guard let buffer = createBuffer(from: samples) else {
+            logActivity("Failed to create buffer from samples")
+            return
+        }
         
-        logActivity("Playback started")
+        let frameCount = AVAudioFrameCount(buffer.frameLength)
+        print("Frame count: \(frameCount)")
+        guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: hardwareOutputFormat, frameCapacity: frameCount) else { return }
+        
+        var error: NSError?
+        let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
+            outStatus.pointee = .haveData
+            return buffer
+        }
+        
+        let status = processingToOutputConverter.convert(to: convertedBuffer, error: &error, withInputFrom: inputBlock)
+        
+        if status == .error || error != nil {
+            logActivity("Conversion failed: \(error?.localizedDescription ?? "unknown error")")
+            return
+        }
+        
+        playerNode.scheduleBuffer(convertedBuffer)
     }
     
     private func createBuffer(from samples: [Int16]) -> AVAudioPCMBuffer? {
@@ -270,6 +253,7 @@ class AudioManager {
             if isPlaying {
                 restartPlaybackWithNewRoute()
             }
+            try? connectNodes()
         default:
             break
         }
@@ -294,17 +278,20 @@ class AudioManager {
     private func restartRecordingWithNewRoute() {
         logActivity("Restarting recording due to route change")
         stopRecording()
+        try? connectNodes()
         try? startRecording()
     }
     
     private func restartPlaybackWithNewRoute() {
         logActivity("Restarting playback due to route change")
         stopPlayback()
+        try? connectNodes()
     }
     
     private func logActivity(_ message: String) {
         let logEntry = (timestamp: Date(), message: message)
         activityLog.insert(logEntry, at: 0)
+        print(message)
     }
     
     private func formatDescription(_ format: AVAudioFormat) -> String {
