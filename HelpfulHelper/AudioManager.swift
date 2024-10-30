@@ -23,6 +23,7 @@ class AudioManager {
     
     private var isRecording = false
     private var isPlaying = false
+    private var isConnected = false
     
     // Activity logging
     @Published var activityLog: [(timestamp: Date, message: String)] = []
@@ -107,6 +108,11 @@ class AudioManager {
         let hardwareInputFormat = inputNode.inputFormat(forBus: 0)
         let hardwareOutputFormat = engine.outputNode.outputFormat(forBus: 0)
 
+        if hardwareInputFormat.channelCount < 1 {
+            print("Error: Input format must have at least one channel.")
+            return
+        }
+        
         // Enable voice processing
         try? inputNode.setVoiceProcessingEnabled(true)
         try? engine.outputNode.setVoiceProcessingEnabled(true)
@@ -127,11 +133,13 @@ class AudioManager {
         engine.prepare()
 
         logActivity("Audio nodes connected")
+        isConnected = true
     }
     
     func startRecording() throws {
         guard !isRecording else { return }
-        
+        guard isConnected else { return }
+
         logActivity("Starting recording...")
         
         let hardwareInputFormat = inputNode.inputFormat(forBus: 0)
@@ -179,6 +187,7 @@ class AudioManager {
     }
     
     func play(samples: [Int16]) throws {
+        guard isConnected else { return }
         let hardwareOutputFormat = engine.outputNode.outputFormat(forBus: 0)
         let processingToOutputConverter = AVAudioConverter(from: processingFormat, to: hardwareOutputFormat)!
         

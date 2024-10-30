@@ -39,7 +39,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var isSessionActive = false
     
-    private let systemMessage = "You are a helpful and bubbly AI assistant who loves to chat about anything the user is interested about and is prepared to offer them facts."
+    private let systemMessage = "You are a helpful and bubbly AI assistant who loves to chat about anything the user is interested about and is prepared to offer them facts. You also can use tools like the look tool to do things on their behalf."
     
     init(cameraCoordinator: CameraSessionCoordinator) {
         let apiKey = Env.getValue(forKey: "OPENAI_API_KEY")!
@@ -140,16 +140,20 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                 "tools": [[
                     "type": "function",
                     "name": "look",
-                    "description": "returns a description of the view from the selected camera. the front camera faces people and the back camera faces away.",
+                    "description": "returns a description of the view from the selected camera. this description is private to you so you must relay it to the user if they asked for information about it.",
                     "parameters": [
                         "type": "object",
                         "properties": [
+                            "query": [
+                                "description": "the question that you have about what appears in the camera. it could be simple 'like descritbe the image' or more complicated.",
+                                "type": "string"
+                            ],
                             "camera": [
-                                "description": "the camera that you want a describe a frame from",
+                                "description": "the camera that you want a describe a frame from, either 'front' or 'back'",
                                 "type": "string"
                             ]
                         ],
-                        "required": ["camera"]
+                        "required": ["query", "camera"]
                     ]
                 ]]
             ]
@@ -245,55 +249,6 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
             }
         }
     }
-    private func handleLookFunction(_ args: [String: Any], callId: String) {
-        guard let camera = args["camera"] as? String else {
-            print("Invalid camera argument")
-            return
-        }
-
-        Task {
-            do {
-                let imageData = try await cameraCoordinator.captureImage(from: camera)
-                let imageDescription = try await callAnthropicAPI(imageData: imageData)
-                
-                let functionResponse: [String: Any] = [
-                    "type": "conversation.item.create",
-                    "item": [
-                        "type": "function_call_output",
-                        "call_id": callId,
-                        "output": imageDescription
-                    ]
-                ]
-                
-                guard let jsonData = try? JSONSerialization.data(withJSONObject: functionResponse),
-                      let jsonString = String(data: jsonData, encoding: .utf8) else {
-                    print("Failed to create JSON response")
-                    return
-                }
-                
-                let message = URLSessionWebSocketTask.Message.string(jsonString)
-                websocket?.send(message) { error in
-                    if let error = error {
-                        print("Failed to send function response: \(error)")
-                    } else {
-                        // Send the response.create message
-                        let responseCreate = ["type": "response.create"]
-                        if let createData = try? JSONSerialization.data(withJSONObject: responseCreate),
-                           let createString = String(data: createData, encoding: .utf8) {
-                            let createMessage = URLSessionWebSocketTask.Message.string(createString)
-                            self.websocket?.send(createMessage) { error in
-                                if let error = error {
-                                    print("Failed to send response.create: \(error)")
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch {
-                print("Error processing image: \(error)")
-            }
-        }
-    }
 
     // Public methods
     
@@ -301,7 +256,9 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         guard name == "look",
               let argsData = arguments.data(using: .utf8),
               let argsJson = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any],
-              let camera = argsJson["camera"] as? String else {
+              let camera = argsJson["camera"] as? String,
+              let query = argsJson["query"] as? String
+        else {
             print("Invalid function call format or unsupported function")
             return
         }
@@ -309,7 +266,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         Task {
             do {
                 let imageData = try await cameraCoordinator.captureImage(from: camera)
-                let imageDescription = try await callAnthropicAPI(imageData: imageData)
+                let imageDescription = try await callAnthropicAPI(imageData: imageData, query: query)
                 
                 let functionResponse: [String: Any] = [
                     "type": "conversation.item.create",
@@ -350,7 +307,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         }
     }
 
-    public func callAnthropicAPI(imageData: Data) async throws -> String {
+    public func callAnthropicAPI(imageData: Data, query: String) async throws -> String {
         let base64Image = imageData.base64EncodedString()
         let mediaType = "image/jpeg" // Adjust this if your image format is different
         
@@ -379,7 +336,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                         ],
                         [
                             "type": "text",
-                            "text": "What is in the above image?"
+                            "text": query
                         ]
                     ]
                 ]

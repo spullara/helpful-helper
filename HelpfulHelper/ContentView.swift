@@ -105,7 +105,7 @@ struct ContentView: View {
         Task {
             do {
                 let imageData = try await sessionCoordinator.captureImage(from: "front")
-                let result = try await audioCoordinator.callAnthropicAPI(imageData: imageData)
+                let result = try await audioCoordinator.callAnthropicAPI(imageData: imageData, query: "What is in the image?")
                 DispatchQueue.main.async {
                     self.anthropicResult = result
                     self.isTestingAnthropic = false
