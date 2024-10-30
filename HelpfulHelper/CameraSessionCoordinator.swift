@@ -11,7 +11,7 @@ import CoreImage
 import UIKit
 
 // MARK: - Camera Session Coordinator
-class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate, ObservableObject {
+class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVCaptureVideoDataOutputSampleBufferDelegate, ObservableObject {
     private var multiCamSession: AVCaptureMultiCamSession?
     private var frontPreviewLayer: AVCaptureVideoPreviewLayer?
     private var backPreviewLayer: AVCaptureVideoPreviewLayer?
@@ -20,6 +20,9 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
     private var lastProcessedTime: TimeInterval = 0
     private let minimumProcessingInterval: TimeInterval = 0.1 // 10Hz maximum processing rate
     private var frontCameraConnection: AVCaptureConnection?
+    
+    private var frontVideoOutput: AVCaptureVideoDataOutput?
+    private var backVideoOutput: AVCaptureVideoDataOutput?
     
     override init() {
         super.init()
@@ -71,6 +74,7 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
     
     private func setupCameraPreview(for position: AVCaptureDevice.Position, input: AVCaptureDeviceInput, in session: AVCaptureMultiCamSession) {
         let output = AVCaptureVideoDataOutput()
+        output.setSampleBufferDelegate(self, queue: DispatchQueue(label: "videoQueue"))
         guard session.canAddOutput(output) else {
             print("Cannot add video data output for \(position) camera")
             return
@@ -94,8 +98,10 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         
         if position == .front {
             self.frontPreviewLayer = layer
+            self.frontVideoOutput = output
         } else {
             self.backPreviewLayer = layer
+            self.backVideoOutput = output
         }
         
         print("Preview setup completed for \(position) camera")
@@ -176,5 +182,87 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
     func getSession() -> AVCaptureMultiCamSession? {
         return multiCamSession
     }
+
+    private var captureCompletion: ((Result<Data, CameraSessionError>) -> Void)?
+    private var captureTimer: Timer?
+    private var isCapturing = false
     
+    func captureImage(from camera: String) async throws -> Data {
+        return try await withCheckedThrowingContinuation { continuation in
+            let videoOutput: AVCaptureVideoDataOutput?
+            if camera == "front" {
+                videoOutput = frontVideoOutput
+            } else if camera == "back" {
+                videoOutput = backVideoOutput
+            } else {
+                continuation.resume(throwing: CameraSessionError.invalidCamera)
+                return
+            }
+            
+            guard let output = videoOutput else {
+                continuation.resume(throwing: CameraSessionError.outputUnavailable)
+                return
+            }
+            
+            self.isCapturing = true
+            
+            self.captureCompletion = { [weak self] result in
+                // Only process if we're still capturing
+                guard let self = self, self.isCapturing else { return }
+                
+                // Reset capture state
+                self.isCapturing = false
+                self.captureTimer?.invalidate()
+                self.captureTimer = nil
+                self.captureCompletion = nil
+                
+                switch result {
+                case .success(let data):
+                    continuation.resume(returning: data)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+            
+            // Set up a timeout to cancel the capture after a short duration
+            self.captureTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+                guard let self = self, self.isCapturing else { return }
+                self.isCapturing = false
+                self.captureCompletion?(.failure(.captureTimeout))
+            }
+        }
+    }
+    
+    // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        // Only process if we're actively capturing and have a completion handler
+        guard isCapturing, let captureCompletion = self.captureCompletion else { return }
+        
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            captureCompletion(.failure(.captureFailed))
+            return
+        }
+        
+        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+            captureCompletion(.failure(.captureFailed))
+            return
+        }
+        
+        let uiImage = UIImage(cgImage: cgImage)
+        guard let jpegData = uiImage.jpegData(compressionQuality: 0.8) else {
+            captureCompletion(.failure(.captureFailed))
+            return
+        }
+        
+        captureCompletion(.success(jpegData))
+    }
+}
+
+enum CameraSessionError: Error {
+    case invalidCamera
+    case outputUnavailable
+    case captureFailed
+    case captureTimeout
 }
