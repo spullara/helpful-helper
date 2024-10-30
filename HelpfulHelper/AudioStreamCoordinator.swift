@@ -51,10 +51,10 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         self.audioManager = AudioManager { [weak self] samples in
             self?.processAudioSamples(samples)
         }
-        
+
         setupWebSocket()
     }
-    
+
     private func processAudioSamples(_ samples: [Int16]) {
         guard isRecording, let websocket = websocket else { return }
         
@@ -138,12 +138,12 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                 "tools": [[
                     "type": "function",
                     "name": "look",
-                    "description": "returns an image from the selected camera. the front camera faces people and the back camera faces away.",
+                    "description": "returns a description of the view from the selected camera. the front camera faces people and the back camera faces away.",
                     "parameters": [
                         "type": "object",
                         "properties": [
                             "camera": [
-                                "description": "the camera that you want a frame from",
+                                "description": "the camera that you want a describe a frame from",
                                 "type": "string"
                             ]
                         ],
@@ -308,7 +308,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         }
     }
 
-    private func callAnthropicAPI(imageData: Data) async throws -> String {
+    public func callAnthropicAPI(imageData: Data) async throws -> String {
         let base64Image = imageData.base64EncodedString()
         let mediaType = "image/jpeg" // Adjust this if your image format is different
         

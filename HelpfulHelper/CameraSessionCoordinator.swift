@@ -148,7 +148,6 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         lastProcessedTime = currentTime
         
         guard let accessory = currentDockAccessory else {
-            print("No dock accessory connected")
             return
         }
         
@@ -203,6 +202,16 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
             throw NSError(domain: "CameraError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Unable to add photo output"])
         }
 
+        // Select the appropriate camera input
+        let cameraPosition: AVCaptureDevice.Position = (camera == "front") ? .front : .back
+        guard let cameraDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: cameraPosition),
+              let cameraInput = try? AVCaptureDeviceInput(device: cameraDevice),
+              session.canAddInput(cameraInput) else {
+            throw NSError(domain: "CameraError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Unable to setup camera input"])
+        }
+
+        session.addInput(cameraInput)
+
         // Create settings for JPEG capture
         let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
 
@@ -215,7 +224,15 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
                     continuation.resume(throwing: error)
                 }
             }
+            
+            print("Starting photo capture...")
             output.capturePhoto(with: settings, delegate: delegate)
+            
+            // Increase timeout to 10 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+                print("Photo capture timed out")
+                continuation.resume(throwing: NSError(domain: "CameraError", code: 4, userInfo: [NSLocalizedDescriptionKey: "Capture timeout"]))
+            }
         }
     }
 }
@@ -228,16 +245,20 @@ class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     }
     
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        print("Photo capture finished processing")
         if let error = error {
+            print("Photo capture error: \(error)")
             completionHandler(.failure(error))
             return
         }
         
         guard let imageData = photo.fileDataRepresentation() else {
+            print("Unable to get image data")
             completionHandler(.failure(NSError(domain: "CameraError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Unable to get image data"])))
             return
         }
         
+        print("Photo captured successfully, data size: \(imageData.count) bytes")
         completionHandler(.success(imageData))
     }
 }

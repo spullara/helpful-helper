@@ -8,6 +8,8 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var isRecording = false
     @State private var isSessionActive = false
+    @State private var isTestingAnthropic = false
+    @State private var anthropicResult: String = ""
     
     @StateObject private var sessionCoordinator: CameraSessionCoordinator
     @StateObject private var audioCoordinator: AudioStreamCoordinator
@@ -20,15 +22,35 @@ struct ContentView: View {
     
     var body: some View {
         VStack {
-            Button(action: toggleSession) {
-                Text(isSessionActive ? "Sleep" : "Wake")
+            HStack {
+                Button(action: toggleSession) {
+                    Text(isSessionActive ? "Sleep" : "Wake")
+                        .font(.headline)
+                        .padding()
+                        .background(isSessionActive ? Color.red : Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                
+                Button(action: testAnthropic) {
+                    Text("Test Anthropic")
+                        .font(.headline)
+                        .padding()
+                        .background(isTestingAnthropic ? Color.gray : Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                .disabled(isTestingAnthropic)
+            }
+            
+            if !anthropicResult.isEmpty {
+                Text("Anthropic Result:")
                     .font(.headline)
+                Text(anthropicResult)
                     .padding()
-                    .background(isSessionActive ? Color.red : Color.green)
-                    .foregroundColor(.white)
+                    .background(Color.gray.opacity(0.2))
                     .cornerRadius(10)
             }
-            .padding(.top)
             
             // Front camera preview
             VStack {
@@ -46,7 +68,7 @@ struct ContentView: View {
                         .cornerRadius(12)
                 }
             }
-            
+
             // Back camera preview
             VStack {
                 Text("Back Camera")
@@ -74,6 +96,27 @@ struct ContentView: View {
             audioCoordinator.startSession()
         }
         isSessionActive.toggle()
+    }
+    
+    private func testAnthropic() {
+        isTestingAnthropic = true
+        anthropicResult = ""
+        
+        Task {
+            do {
+                let imageData = try await sessionCoordinator.captureImage(from: "front")
+                let result = try await audioCoordinator.callAnthropicAPI(imageData: imageData)
+                DispatchQueue.main.async {
+                    self.anthropicResult = result
+                    self.isTestingAnthropic = false
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.anthropicResult = "Error: \(error.localizedDescription)"
+                    self.isTestingAnthropic = false
+                }
+            }
+        }
     }
 }
 
