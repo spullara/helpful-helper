@@ -187,8 +187,8 @@ class AudioManager {
             return
         }
         
-        let frameCount = AVAudioFrameCount(buffer.frameLength)
-        guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: hardwareOutputFormat, frameCapacity: frameCount) else { return }
+        let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * hardwareOutputFormat.sampleRate / processingFormat.sampleRate)
+        guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: hardwareOutputFormat, frameCapacity: outputFrameCapacity) else { return }
         
         var error: NSError?
         let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
