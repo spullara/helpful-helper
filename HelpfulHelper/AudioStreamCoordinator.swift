@@ -348,12 +348,42 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         request.httpBody = jsonData
         
         let (data, _) = try await URLSession.shared.data(for: request)
+        print(String(decoding: data, as: Unicode.UTF8.self))
         let response = try JSONDecoder().decode(AnthropicResponse.self, from: data)
-        return response.content
+        return response.content.first?.text ?? "No response"
     }
 
     struct AnthropicResponse: Codable {
-        let content: String
+        let id: String
+        let type: String
+        let role: String
+        let model: String
+        let content: [Content]
+        let stopReason: String
+        let stopSequence: String?
+        let usage: Usage
+
+        enum CodingKeys: String, CodingKey {
+            case id, type, role, model, content
+            case stopReason = "stop_reason"
+            case stopSequence = "stop_sequence"
+            case usage
+        }
+    }
+
+    struct Content: Codable {
+        let type: String
+        let text: String
+    }
+
+    struct Usage: Codable {
+        let inputTokens: Int
+        let outputTokens: Int
+
+        enum CodingKeys: String, CodingKey {
+            case inputTokens = "input_tokens"
+            case outputTokens = "output_tokens"
+        }
     }
 
     // Public methods
