@@ -1,5 +1,4 @@
 import Foundation
-import AVFoundation
 import WebKit
 
 struct Env {
@@ -29,149 +28,35 @@ struct Env {
     }
 }
 
-extension AVAudioFormat {
-    func debugDescription() -> String {
-        return """
-        Format:
-          - Sample Rate: \(sampleRate)
-          - Channel Count: \(channelCount)
-          - Common Format: \(commonFormat.rawValue)
-          - Stream Description: \(streamDescription.pointee)
-        """
-    }
-}
-
-class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObject {
-    private var audioEngine: AVAudioEngine
-    private var inputNode: AVAudioInputNode
-    private var playerNode: AVAudioPlayerNode
+class AudioStreamCoordinator: NSObject, ObservableObject {
+    private var audioManager: AudioManager?
     private var websocket: URLSessionWebSocketTask?
     private var session: URLSession
     private var apiKey: String
     private var isRecording = false
     
-    // Format for OpenAI API (24kHz)
-    private let apiFormat = AVAudioFormat(
-        commonFormat: .pcmFormatInt16,
-        sampleRate: 24000,
-        channels: 1,
-        interleaved: false
-    )!  // Force unwrap since this is a known good format
-    
-    private var inputConverter: AVAudioConverter?
-    private var outputConverter: AVAudioConverter?
-    
     private let systemMessage = "You are a helpful and bubbly AI assistant who loves to chat about anything the user is interested about and is prepared to offer them facts."
     
     override init() {
         let apiKey = Env.getValue(forKey: "OPENAI_API_KEY")!
-                
         self.apiKey = apiKey
-        self.audioEngine = AVAudioEngine()
-        self.inputNode = audioEngine.inputNode
-        self.playerNode = AVAudioPlayerNode()
         self.session = URLSession(configuration: .default)
         
         super.init()
         
-        setupAudioSession()
-        setupAudioEngine()
-        setupConverters()
+        // Initialize audio manager after super.init
+        self.audioManager = AudioManager { [weak self] samples in
+            self?.processAudioSamples(samples)
+        }
+        
         setupWebSocket()
     }
     
-    private func setupAudioSession() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
-            try session.setActive(true)
-        } catch {
-            print("Failed to setup audio session: \(error)")
-        }
-    }
-    
-    private func setupConverters() {
-        // Create converters using the hardware format
-        inputConverter = AVAudioConverter(from: audioEngine.outputNode.outputFormat(forBus: 0), to: apiFormat)
-        outputConverter = AVAudioConverter(from: apiFormat, to: audioEngine.inputNode.inputFormat(forBus: 0))
-    }
-    
-    private func setupAudioEngine() {
-        // Setup player node
-        audioEngine.attach(playerNode)
+    private func processAudioSamples(_ samples: [Int16]) {
+        guard isRecording, let websocket = websocket else { return }
         
-        let inputFormat = inputNode.inputFormat(forBus: 0);
-
-        // Connect player to output using hardware format
-        audioEngine.connect(playerNode, to: audioEngine.mainMixerNode, format: inputFormat)
-
-        // Setup input tap with hardware format
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputNode.inputFormat(forBus: 0)) { [weak self] buffer, time in
-            self?.processAudioBuffer(buffer)
-        }
-
-        // Prepare and start engine
-        audioEngine.prepare()
-        do {
-            try audioEngine.start()
-            print("Audio engine started")
-
-        } catch {
-            print("Failed to start audio engine: \(error)")
-        }
-        startRecording()
-
-    }
-    
-    private func convertBufferToAPI(_ sourceBuffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard let converter = inputConverter,
-              let convertedBuffer = AVAudioPCMBuffer(
-                pcmFormat: apiFormat,
-                frameCapacity: AVAudioFrameCount(Double(sourceBuffer.frameLength) * apiFormat.sampleRate / Double(sourceBuffer.format.sampleRate))
-              ) else {
-            print("Failed to create conversion buffer")
-            return nil
-        }
-        
-        var error: NSError?
-        converter.convert(to: convertedBuffer, error: &error) { inNumPackets, outStatus in
-            outStatus.pointee = .haveData
-            return sourceBuffer
-        }
-        
-        if let error = error {
-            print("Conversion error: \(error)")
-            return nil
-        }
-        
-        print("Converted to API")
-        
-        return convertedBuffer
-    }
-    
-    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
-        print("Processing")
-        guard isRecording,
-              let convertedBuffer = convertBufferToAPI(buffer),
-              let websocket = websocket else { return }
-        
-        let isInt16 = apiFormat.commonFormat == .pcmFormatInt16
-        // Get the audio data from the converted buffer
-        let frameCount = Int(convertedBuffer.frameLength)
-        let channelCount = Int(convertedBuffer.format.channelCount)
-        
-        let audioData : Data
-        if isInt16 {
-            let channelData = convertedBuffer.int16ChannelData?[0]
-            let data = channelData!
-            let bytesPerFrame = isInt16 ? 2 : 4
-            audioData = Data(bytes: data, count: frameCount * channelCount * bytesPerFrame)
-        } else {
-            let channelData = convertedBuffer.floatChannelData?[0]
-            let data = channelData!
-            let bytesPerFrame = isInt16 ? 2 : 4
-            audioData = Data(bytes: data, count: frameCount * channelCount * bytesPerFrame)
-        }
+        // Convert samples to Data
+        let audioData = Data(bytes: samples, count: samples.count * 2) // 2 bytes per Int16
         
         // Convert to base64
         let base64Audio = audioData.base64EncodedString()
@@ -181,6 +66,9 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
             "type": "input_audio_buffer.append",
             "audio": base64Audio
         ]
+        
+        // Print the first 40 characters of the base64 audio
+        print("Sent \(base64Audio.prefix(40))...")
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: audioAppend),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
@@ -193,65 +81,14 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
         }
     }
     
-    private func convertBufferFromAPI(_ data: Data) -> AVAudioPCMBuffer? {
-        print("Converting from API")
-        guard let converter = outputConverter else { return nil }
-        
-        // Create source buffer with API format
-        let isInt16 = apiFormat.commonFormat == .pcmFormatInt16
-        let bytesPerFrame = isInt16 ? 2 : 4
-        let frameCount = data.count / bytesPerFrame
-        guard let sourceBuffer = AVAudioPCMBuffer(
-            pcmFormat: apiFormat,
-            frameCapacity: AVAudioFrameCount(frameCount)
-        ) else { return nil }
-        
-        sourceBuffer.frameLength = sourceBuffer.frameCapacity
-        
-        // Copy data to source buffer
-        data.withUnsafeBytes { (rawBufferPointer: UnsafeRawBufferPointer) in
-            if isInt16 {
-                guard let sourcePtr = rawBufferPointer.baseAddress?.assumingMemoryBound(to: Int16.self) else { return }
-                sourceBuffer.int16ChannelData?[0].update(from: sourcePtr, count: frameCount)
-            } else {
-                guard let sourcePtr = rawBufferPointer.baseAddress?.assumingMemoryBound(to: Float.self) else { return }
-                sourceBuffer.floatChannelData?[0].update(from: sourcePtr, count: frameCount)
-            }
-        }
-        
-        // Create destination buffer with engine format
-        let engineFormat = audioEngine.outputNode.outputFormat(forBus: 0)
-        let destFrameCapacity = AVAudioFrameCount(Double(frameCount) * engineFormat.sampleRate / apiFormat.sampleRate)
-        guard let destBuffer = AVAudioPCMBuffer(
-            pcmFormat: engineFormat,
-            frameCapacity: destFrameCapacity
-        ) else { return nil }
-        
-        // Convert to engine format
-        var error: NSError?
-        converter.convert(to: destBuffer, error: &error) { inNumPackets, outStatus in
-            outStatus.pointee = .haveData
-            return sourceBuffer
-        }
-        
-        if let error = error {
-            print("Conversion error: \(error)")
-            return nil
-        }
-        
-        print("Converted")
-        
-        return destBuffer
-    }
-    
     private func playAudioData(_ audioData: Data) {
-        guard let buffer = convertBufferFromAPI(audioData) else {
-            print("Failed to convert received audio data")
-            return
+        // Convert base64 audio data back to Int16 samples
+        let samples: [Int16] = audioData.withUnsafeBytes { buffer in
+            Array(buffer.bindMemory(to: Int16.self))
         }
-        print("Received audio data: \(audioData.count) bytes")
-        playerNode.scheduleBuffer(buffer, completionHandler: nil)
-        playerNode.play()
+        
+        // Play the audio using AudioManager
+        try? audioManager?.play(buffers: [samples])
     }
     
     private func setupWebSocket() {
@@ -266,7 +103,6 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
         websocket = session.webSocketTask(with: request)
         websocket?.resume()
         
-        // Send initial session configuration
         sendSessionConfiguration()
         receiveWebSocketMessages()
     }
@@ -325,6 +161,9 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
         case "response.audio.delta":
             if let delta = json["delta"] as? String,
                let audioData = Data(base64Encoded: delta) {
+                // print the first 40 letters of delta
+                print("Received \(delta.prefix(40))...")
+                // play the audio data
                 playAudioData(audioData)
             }
         case "session.updated":
@@ -337,16 +176,20 @@ class AudioStreamCoordinator: NSObject, AVAudioRecorderDelegate, ObservableObjec
     
     // Public methods
     func startRecording() {
+        guard !isRecording else { return }
         isRecording = true
+        try? audioManager?.startRecording()
     }
     
     func stopRecording() {
+        guard isRecording else { return }
         isRecording = false
+        audioManager?.stopRecording()
     }
     
     func disconnect() {
         websocket?.cancel()
-        audioEngine.stop()
-        inputNode.removeTap(onBus: 0)
+        audioManager?.stopRecording()
+        audioManager?.stopPlayback()
     }
 }
