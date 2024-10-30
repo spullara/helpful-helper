@@ -34,6 +34,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     private var session: URLSession
     private var apiKey: String
     private var isRecording = false
+    @Published var isSessionActive = false
     
     private let systemMessage = "You are a helpful and bubbly AI assistant who loves to chat about anything the user is interested about and is prepared to offer them facts."
     
@@ -58,8 +59,6 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         // Convert samples to Data
         let audioData = Data(bytes: samples, count: samples.count * 2) // 2 bytes per Int16
         
-        print("Got \(audioData.count) bytes of audio")
-        
         // Convert to base64
         let base64Audio = audioData.base64EncodedString()
         
@@ -68,9 +67,6 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
             "type": "input_audio_buffer.append",
             "audio": base64Audio
         ]
-        
-        // Print the first 40 characters of the base64 audio
-        print("Sent \(base64Audio.prefix(40))...")
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: audioAppend),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
@@ -93,7 +89,25 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         try? audioManager?.play(samples: samples)
     }
     
+    func startSession() {
+        guard !isSessionActive else { return }
+        
+        setupWebSocket()
+        isSessionActive = true
+    }
+    
+    func endSession() {
+        guard isSessionActive else { return }
+        
+        websocket?.cancel(with: .goingAway, reason: nil)
+        websocket = nil
+        isSessionActive = false
+        stopRecording()
+    }
+    
     private func setupWebSocket() {
+        print("Connecting to OpenAI API...")
+        
         guard var urlComponents = URLComponents(string: "wss://api.openai.com/v1/realtime") else { return }
         urlComponents.queryItems = [URLQueryItem(name: "model", value: "gpt-4o-realtime-preview-2024-10-01")]
         
@@ -163,8 +177,6 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         case "response.audio.delta":
             if let delta = json["delta"] as? String,
                let audioData = Data(base64Encoded: delta) {
-                // print the first 40 letters of delta
-                print("Received \(delta.prefix(40))...")
                 // play the audio data
                 playAudioData(audioData)
             }
@@ -178,7 +190,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     
     // Public methods
     func startRecording() {
-        guard !isRecording else { return }
+        guard isSessionActive, !isRecording else { return }
         isRecording = true
         try? audioManager?.startRecording()
     }
@@ -190,8 +202,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     }
     
     func disconnect() {
-        websocket?.cancel()
-        audioManager?.stopRecording()
+        endSession()
         audioManager?.stopPlayback()
     }
 }

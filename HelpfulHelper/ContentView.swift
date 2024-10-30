@@ -9,12 +9,19 @@ struct ContentView: View {
     @StateObject private var audioCoordinator = AudioStreamCoordinator()
     @StateObject private var sessionCoordinator = CameraSessionCoordinator()
     @State private var isRecording = false
+    @State private var isSessionActive = false
     
     var body: some View {
         VStack {
-            Text("Manual Tracking Mode")
-                .font(.headline)
-                .padding(.top)
+            Button(action: toggleSession) {
+                Text(isSessionActive ? "Sleep" : "Wake")
+                    .font(.headline)
+                    .padding()
+                    .background(isSessionActive ? Color.red : Color.green)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+            }
+            .padding(.top)
             
             // Front camera preview
             VStack {
@@ -51,6 +58,15 @@ struct ContentView: View {
             }
         }
         .padding()
+    }
+
+    private func toggleSession() {
+        if isSessionActive {
+            audioCoordinator.endSession()
+        } else {
+            audioCoordinator.startSession()
+        }
+        isSessionActive.toggle()
     }
 }
 

@@ -83,15 +83,7 @@ class AudioManager {
             logActivity("Output Channels: \(session.outputNumberOfChannels)")
             
             // Log current audio route
-            let currentRoute = session.currentRoute
-            var routeDescription = "Current audio route:"
-            for port in currentRoute.inputs {
-                routeDescription += "\nInput: \(port.portName)"
-            }
-            for port in currentRoute.outputs {
-                routeDescription += "\nOutput: \(port.portName)"
-            }
-            logActivity(routeDescription)
+            updateRouteInfo()
             
         } catch {
             logActivity("Failed to set up audio session: \(error.localizedDescription)")
@@ -186,7 +178,6 @@ class AudioManager {
         }
         
         let frameCount = AVAudioFrameCount(buffer.frameLength)
-        print("Frame count: \(frameCount)")
         guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: hardwareOutputFormat, frameCapacity: frameCount) else { return }
         
         var error: NSError?
