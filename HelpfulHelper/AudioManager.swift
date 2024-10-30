@@ -158,7 +158,6 @@ class AudioManager {
             let numFrames = Int(convertedBuffer.frameLength)
             let samples = Array(UnsafeBufferPointer(start: int16ChannelData[0], count: numFrames))
             self.processingCallback(samples)
-            try? self.play(samples: samples)
         }
         
         try engine.start()
