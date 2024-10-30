@@ -1,5 +1,7 @@
 import Foundation
 import WebKit
+import UIKit
+import AVFoundation
 
 struct Env {
     static func getValue(forKey key: String) -> String? {
@@ -34,7 +36,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     private var websocket: URLSessionWebSocketTask?
     private var session: URLSession
     private var apiKey: String
-    private var isRecording = false
+    @Published var isRecording = false
     @Published var isSessionActive = false
     
     private let systemMessage = "You are a helpful and bubbly AI assistant who loves to chat about anything the user is interested about and is prepared to offer them facts."
@@ -390,17 +392,26 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     func startRecording() {
         guard isSessionActive, !isRecording else { return }
         isRecording = true
+        DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = true // Prevent screen from sleeping
+        }
         try? audioManager?.startRecording()
     }
     
     func stopRecording() {
         guard isRecording else { return }
         isRecording = false
+        DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = false // Allow screen to sleep again
+        }
         audioManager?.stopRecording()
     }
     
     func disconnect() {
         endSession()
         audioManager?.stopPlayback()
+        DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = false // Ensure screen can sleep when disconnecting
+        }
     }
 }
