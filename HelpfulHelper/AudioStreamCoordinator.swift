@@ -238,7 +238,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
             }
         }
     }
-    private func handleLookFunction(_ args: [String: Any]) {
+    private func handleLookFunction(_ args: [String: Any], callId: String) {
         guard let camera = args["camera"] as? String else {
             print("Invalid camera argument")
             return
@@ -247,17 +247,18 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         Task {
             do {
                 let imageData = try await cameraCoordinator.captureImage(from: camera)
-                let base64Image = imageData.base64EncodedString()
+                let imageDescription = try await callAnthropicAPI(imageData: imageData)
                 
-                let response: [String: Any] = [
-                    "type": "function_response",
-                    "response": [
-                        "name": "look",
-                        "content": base64Image
+                let functionResponse: [String: Any] = [
+                    "type": "conversation.item.create",
+                    "item": [
+                        "type": "function_call_output",
+                        "call_id": callId,
+                        "output": imageDescription
                     ]
                 ]
                 
-                guard let jsonData = try? JSONSerialization.data(withJSONObject: response),
+                guard let jsonData = try? JSONSerialization.data(withJSONObject: functionResponse),
                       let jsonString = String(data: jsonData, encoding: .utf8) else {
                     print("Failed to create JSON response")
                     return
@@ -267,10 +268,22 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                 websocket?.send(message) { error in
                     if let error = error {
                         print("Failed to send function response: \(error)")
+                    } else {
+                        // Send the response.create message
+                        let responseCreate = ["type": "response.create"]
+                        if let createData = try? JSONSerialization.data(withJSONObject: responseCreate),
+                           let createString = String(data: createData, encoding: .utf8) {
+                            let createMessage = URLSessionWebSocketTask.Message.string(createString)
+                            self.websocket?.send(createMessage) { error in
+                                if let error = error {
+                                    print("Failed to send response.create: \(error)")
+                                }
+                            }
+                        }
                     }
                 }
             } catch {
-                print("Error capturing image: \(error)")
+                print("Error processing image: \(error)")
             }
         }
     }
@@ -279,6 +292,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     
     private func handleFunctionCall(_ functionCall: [String: Any]) {
         guard let name = functionCall["name"] as? String,
+              let callId = functionCall["call_id"] as? String,
               let arguments = functionCall["arguments"] as? String,
               let argsData = arguments.data(using: .utf8),
               let argsJson = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] else {
@@ -288,11 +302,60 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
 
         switch name {
         case "look":
-            handleLookFunction(argsJson)
+            handleLookFunction(argsJson, callId: callId)
         default:
             print("Unknown function: \(name)")
         }
     }
+
+    private func callAnthropicAPI(imageData: Data) async throws -> String {
+        let base64Image = imageData.base64EncodedString()
+        let mediaType = "image/jpeg" // Adjust this if your image format is different
+        
+        let apiKey = Env.getValue(forKey: "ANTHROPIC_API_KEY")!
+        let url = URL(string: "https://api.anthropic.com/v1/messages")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let payload: [String: Any] = [
+            "model": "claude-3-5-sonnet-latest",
+            "max_tokens": 1024,
+            "messages": [
+                [
+                    "role": "user",
+                    "content": [
+                        [
+                            "type": "image",
+                            "source": [
+                                "type": "base64",
+                                "media_type": mediaType,
+                                "data": base64Image
+                            ]
+                        ],
+                        [
+                            "type": "text",
+                            "text": "What is in the above image?"
+                        ]
+                    ]
+                ]
+            ]
+        ]
+        
+        let jsonData = try JSONSerialization.data(withJSONObject: payload)
+        request.httpBody = jsonData
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let response = try JSONDecoder().decode(AnthropicResponse.self, from: data)
+        return response.content
+    }
+
+    struct AnthropicResponse: Codable {
+        let content: String
+    }
+
     // Public methods
     func startRecording() {
         guard isSessionActive, !isRecording else { return }

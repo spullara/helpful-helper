@@ -203,8 +203,9 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
             throw NSError(domain: "CameraError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Unable to add photo output"])
         }
 
-        let photoSettings = AVCapturePhotoSettings()
-        
+        // Create settings for JPEG capture
+        let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
+
         return try await withCheckedThrowingContinuation { continuation in
             let delegate = PhotoCaptureDelegate { result in
                 switch result {
@@ -214,7 +215,7 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
                     continuation.resume(throwing: error)
                 }
             }
-            output.capturePhoto(with: photoSettings, delegate: delegate)
+            output.capturePhoto(with: settings, delegate: delegate)
         }
     }
 }
