@@ -189,12 +189,12 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     
     private func handleWebSocketMessage(_ text: String) {
         guard let data = text.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = json["type"] as? String else { return }
+              let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = response["type"] as? String else { return }
         
         switch type {
         case "response.audio.delta":
-            if let delta = json["delta"] as? String,
+            if let delta = response["delta"] as? String,
                let audioData = Data(base64Encoded: delta) {
                 // play the audio data
                 playAudioData(audioData)
@@ -203,9 +203,14 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
             print("Session updated successfully")
             startRecording()
         case "response.output_item.done":
-            if let item = json["item"] as? [String: Any],
-               let functionCall = item["function_call"] as? [String: Any] {
-                handleFunctionCall(functionCall)
+            print(response)
+            if let item = response["item"] as? [String: Any],
+               let itemType = item["type"] as? String,
+               itemType == "function_call",
+               let name = item["name"] as? String,
+               let callId = item["call_id"] as? String,
+               let arguments = item["arguments"] as? String {
+                handleFunctionCall(name: name, callId: callId, arguments: arguments)
             }
         case "input_audio_buffer.speech_started":
             handleSpeechStarted()
@@ -292,21 +297,56 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
 
     // Public methods
     
-    private func handleFunctionCall(_ functionCall: [String: Any]) {
-        guard let name = functionCall["name"] as? String,
-              let callId = functionCall["call_id"] as? String,
-              let arguments = functionCall["arguments"] as? String,
+    private func handleFunctionCall(name: String, callId: String, arguments: String) {
+        guard name == "look",
               let argsData = arguments.data(using: .utf8),
-              let argsJson = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] else {
-            print("Invalid function call format")
+              let argsJson = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any],
+              let camera = argsJson["camera"] as? String else {
+            print("Invalid function call format or unsupported function")
             return
         }
 
-        switch name {
-        case "look":
-            handleLookFunction(argsJson, callId: callId)
-        default:
-            print("Unknown function: \(name)")
+        Task {
+            do {
+                let imageData = try await cameraCoordinator.captureImage(from: camera)
+                let imageDescription = try await callAnthropicAPI(imageData: imageData)
+                
+                let functionResponse: [String: Any] = [
+                    "type": "conversation.item.create",
+                    "item": [
+                        "type": "function_call_output",
+                        "call_id": callId,
+                        "output": imageDescription
+                    ]
+                ]
+                
+                guard let jsonData = try? JSONSerialization.data(withJSONObject: functionResponse),
+                      let jsonString = String(data: jsonData, encoding: .utf8) else {
+                    print("Failed to create JSON response")
+                    return
+                }
+                
+                let message = URLSessionWebSocketTask.Message.string(jsonString)
+                websocket?.send(message) { error in
+                    if let error = error {
+                        print("Failed to send function response: \(error)")
+                    } else {
+                        // Send the response.create message
+                        let responseCreate = ["type": "response.create"]
+                        if let createData = try? JSONSerialization.data(withJSONObject: responseCreate),
+                           let createString = String(data: createData, encoding: .utf8) {
+                            let createMessage = URLSessionWebSocketTask.Message.string(createString)
+                            self.websocket?.send(createMessage) { error in
+                                if let error = error {
+                                    print("Failed to send response.create: \(error)")
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch {
+                print("Error processing image: \(error)")
+            }
         }
     }
 
