@@ -47,7 +47,7 @@ class AudioManager {
         engine.attach(converterNode)
         
         // Set volume for format conversion nodes
-        mixerNode.volume = 1.0
+        mixerNode.volume = 0.7
         converterNode.volume = 1.0
         
         // Set up the audio session
@@ -70,10 +70,15 @@ class AudioManager {
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playAndRecord,
-                                  mode: .default,
-                                  options: [.allowBluetoothA2DP, .allowBluetooth, .allowAirPlay])
+                                  mode: .voiceChat,
+                                  options: [.defaultToSpeaker, .allowBluetoothA2DP, .allowBluetooth, .allowAirPlay, .mixWithOthers])
             try session.setPreferredSampleRate(24000)
             try session.setPreferredInputNumberOfChannels(1)
+            try session.setPreferredIOBufferDuration(0.005) // 5ms buffer for lower latency
+            
+            // Enable AGC and echo cancellation
+            try session.setMode(.voiceChat)
+        
             try session.setActive(true)
             
             logActivity("Audio Session Configuration:")
@@ -81,6 +86,7 @@ class AudioManager {
             logActivity("IO Buffer Duration: \(session.ioBufferDuration)")
             logActivity("Input Channels: \(session.inputNumberOfChannels)")
             logActivity("Output Channels: \(session.outputNumberOfChannels)")
+            logActivity("Mode: \(session.mode.rawValue)")
             
             // Log current audio route
             updateRouteInfo()
@@ -100,7 +106,11 @@ class AudioManager {
         // Get the hardware formats
         let hardwareInputFormat = inputNode.inputFormat(forBus: 0)
         let hardwareOutputFormat = engine.outputNode.outputFormat(forBus: 0)
-        
+
+        // Enable voice processing
+        try? inputNode.setVoiceProcessingEnabled(true)
+        try? engine.outputNode.setVoiceProcessingEnabled(true)
+
         logActivity("Hardware Input Format: \(formatDescription(hardwareInputFormat))")
         logActivity("Hardware Output Format: \(formatDescription(hardwareOutputFormat))")
         logActivity("Processing Format: \(formatDescription(processingFormat))")
@@ -112,7 +122,7 @@ class AudioManager {
         engine.connect(playerNode, to: mixerNode, format: hardwareInputFormat)
 
         // FINAL OUTPUT:
-        engine.connect(playerNode, to: engine.mainMixerNode, format: hardwareOutputFormat)
+        engine.connect(mixerNode, to: engine.mainMixerNode, format: hardwareOutputFormat)
 
         engine.prepare()
 

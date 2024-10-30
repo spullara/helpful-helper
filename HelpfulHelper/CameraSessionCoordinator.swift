@@ -138,6 +138,8 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         }
     }
     
+    var lastFaces = 0
+    
     // MARK: - AVCaptureMetadataOutputObjectsDelegate
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         // Ensure we don't process frames too frequently
@@ -149,8 +151,6 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
             print("No dock accessory connected")
             return
         }
-        
-        print("Received metadata objects: \(metadataObjects.count)")
         
         // Only process if we have face metadata objects
         guard !metadataObjects.isEmpty else { return }
@@ -168,7 +168,10 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
                 
                 // Track the faces
                 try await accessory.track(metadataObjects, cameraInformation: cameraInfo)
-                print("Tracked faces: \(metadataObjects.count)")
+                if lastFaces != metadataObjects.count {
+                    print("Tracked faces: \(metadataObjects.count)")
+                    lastFaces = metadataObjects.count
+                }
             } catch {
                 print("Error tracking faces: \(error)")
             }
