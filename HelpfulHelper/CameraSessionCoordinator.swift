@@ -190,4 +190,53 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
     func getSession() -> AVCaptureMultiCamSession? {
         return multiCamSession
     }
+
+    func captureImage(from camera: String) async throws -> Data {
+        guard let session = multiCamSession else {
+            throw NSError(domain: "CameraError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Camera session not available"])
+        }
+
+        let output = AVCapturePhotoOutput()
+        if session.canAddOutput(output) {
+            session.addOutput(output)
+        } else {
+            throw NSError(domain: "CameraError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Unable to add photo output"])
+        }
+
+        let photoSettings = AVCapturePhotoSettings()
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            let delegate = PhotoCaptureDelegate { result in
+                switch result {
+                case .success(let imageData):
+                    continuation.resume(returning: imageData)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+            output.capturePhoto(with: photoSettings, delegate: delegate)
+        }
+    }
+}
+
+class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
+    private let completionHandler: (Result<Data, Error>) -> Void
+    
+    init(completionHandler: @escaping (Result<Data, Error>) -> Void) {
+        self.completionHandler = completionHandler
+    }
+    
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        if let error = error {
+            completionHandler(.failure(error))
+            return
+        }
+        
+        guard let imageData = photo.fileDataRepresentation() else {
+            completionHandler(.failure(NSError(domain: "CameraError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Unable to get image data"])))
+            return
+        }
+        
+        completionHandler(.success(imageData))
+    }
 }

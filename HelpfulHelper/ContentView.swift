@@ -6,10 +6,17 @@ import SwiftData
 // MARK: - Content View
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @StateObject private var audioCoordinator = AudioStreamCoordinator()
-    @StateObject private var sessionCoordinator = CameraSessionCoordinator()
     @State private var isRecording = false
     @State private var isSessionActive = false
+    
+    @StateObject private var sessionCoordinator: CameraSessionCoordinator
+    @StateObject private var audioCoordinator: AudioStreamCoordinator
+    
+    init() {
+        let cameraCoordinator = CameraSessionCoordinator()
+        _sessionCoordinator = StateObject(wrappedValue: cameraCoordinator)
+        _audioCoordinator = StateObject(wrappedValue: AudioStreamCoordinator(cameraCoordinator: cameraCoordinator))
+    }
     
     var body: some View {
         VStack {

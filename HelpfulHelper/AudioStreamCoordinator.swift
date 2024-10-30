@@ -30,6 +30,7 @@ struct Env {
 
 class AudioStreamCoordinator: NSObject, ObservableObject {
     private var audioManager: AudioManager?
+    private var cameraCoordinator: CameraSessionCoordinator
     private var websocket: URLSessionWebSocketTask?
     private var session: URLSession
     private var apiKey: String
@@ -38,10 +39,11 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     
     private let systemMessage = "You are a helpful and bubbly AI assistant who loves to chat about anything the user is interested about and is prepared to offer them facts."
     
-    override init() {
+    init(cameraCoordinator: CameraSessionCoordinator) {
         let apiKey = Env.getValue(forKey: "OPENAI_API_KEY")!
         self.apiKey = apiKey
         self.session = URLSession(configuration: .default)
+        self.cameraCoordinator = cameraCoordinator
         
         super.init()
         
@@ -132,10 +134,25 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                 "output_audio_format": "pcm16",
                 "voice": "shimmer",
                 "instructions": systemMessage,
-                "modalities": ["text", "audio"]
+                "modalities": ["text", "audio"],
+                "tools": [[
+                    "type": "function",
+                    "name": "look",
+                    "description": "returns an image from the selected camera. the front camera faces people and the back camera faces away.",
+                    "parameters": [
+                        "type": "object",
+                        "properties": [
+                            "camera": [
+                                "description": "the camera that you want a frame from",
+                                "type": "string"
+                            ]
+                        ],
+                        "required": ["camera"]
+                    ]
+                ]]
             ]
         ]
-        
+
         guard let jsonData = try? JSONSerialization.data(withJSONObject: config),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
         
@@ -183,11 +200,71 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         case "session.updated":
             print("Session updated successfully")
             startRecording()
+        case "response.output_item.done":
+            if let item = json["item"] as? [String: Any],
+               let functionCall = item["function_call"] as? [String: Any] {
+                handleFunctionCall(functionCall)
+            }
         default:
             print("Received message of type: \(type)")
         }
     }
+
+    private func handleLookFunction(_ args: [String: Any]) {
+        guard let camera = args["camera"] as? String else {
+            print("Invalid camera argument")
+            return
+        }
+
+        Task {
+            do {
+                let imageData = try await cameraCoordinator.captureImage(from: camera)
+                let base64Image = imageData.base64EncodedString()
+                
+                let response: [String: Any] = [
+                    "type": "function_response",
+                    "response": [
+                        "name": "look",
+                        "content": base64Image
+                    ]
+                ]
+                
+                guard let jsonData = try? JSONSerialization.data(withJSONObject: response),
+                      let jsonString = String(data: jsonData, encoding: .utf8) else {
+                    print("Failed to create JSON response")
+                    return
+                }
+                
+                let message = URLSessionWebSocketTask.Message.string(jsonString)
+                websocket?.send(message) { error in
+                    if let error = error {
+                        print("Failed to send function response: \(error)")
+                    }
+                }
+            } catch {
+                print("Error capturing image: \(error)")
+            }
+        }
+    }
+
+    // Public methods
     
+    private func handleFunctionCall(_ functionCall: [String: Any]) {
+        guard let name = functionCall["name"] as? String,
+              let arguments = functionCall["arguments"] as? String,
+              let argsData = arguments.data(using: .utf8),
+              let argsJson = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] else {
+            print("Invalid function call format")
+            return
+        }
+
+        switch name {
+        case "look":
+            handleLookFunction(argsJson)
+        default:
+            print("Unknown function: \(name)")
+        }
+    }
     // Public methods
     func startRecording() {
         guard isSessionActive, !isRecording else { return }
