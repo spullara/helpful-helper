@@ -145,11 +145,11 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                         "type": "object",
                         "properties": [
                             "query": [
-                                "description": "the question that you have about what appears in the camera. it could be simple 'like descritbe the image' or more complicated.",
+                                "description": "the question that you have about what appears in the camera. it could be simple 'like describe the image' or more complicated.",
                                 "type": "string"
                             ],
                             "camera": [
-                                "description": "the camera that you want a describe a frame from, either 'front' or 'back'",
+                                "description": "the camera that you want a describe a frame from, either 'front' or 'back'. if they dont specify assume that questions about themselves are the front camera, since it is pointing at them, and questions about other things are generally the back camera.",
                                 "type": "string"
                             ]
                         ],

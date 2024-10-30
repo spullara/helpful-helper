@@ -1,0 +1,1366 @@
+import AVFoundation
+import Foundation
+import Spatial
+import _Concurrency
+import _StringProcessing
+import _SwiftConcurrencyShims
+import os
+import os.log
+
+/// Obtain accessory information and control tracking behavior.
+///
+/// `DockAccessory` provides information about the dock accessory including its model name and firmware version. It also controls the dock accessory when you disable system tracking. Use `DockAccesory` to  perform animations, or explicitly control the position of the dock accessory in three-dimensional space by supplying coordinates in units of radians.  The collection of the X, Y, and Z values corresponding to pitch, yaw, and roll is the *angular position* of the dock accessory.
+///
+/// If there are multiple subjects in a video frame, direct the dock accessory to focus on a particular area of the frame using ``setFramingMode(_:)``.
+///
+/// >Important: DockKit throws a ``DockKitError/frameRateTooHigh`` exception if you animate or set the orientation of the dock accessory too quickly, so keep call rates at 2 times per second or less.
+@available(iOS 17, macOS 14, *)
+final public class DockAccessory : @unchecked Sendable, CustomDebugStringConvertible, Equatable, Hashable {
+
+    /// The name and unique identifer of the dock accessory.
+    final public let identifier: DockAccessory.Identifier
+
+    /// The text description of the dock accessory state.
+    final public var debugDescription: String { get }
+
+    /// The firmware version of the dock accessory.
+    ///
+    /// The format of the version is major, minor, and revision, separated by periods.
+    final public var firmwareVersion: String? { get }
+
+    /// The model of the dock accessory.
+    ///
+    /// The format of the model is major, minor, and revision, separated by periods.
+    final public var hardwareModel: String? { get }
+
+    /// Information that uniquely identifies the dock accessory.
+    public struct Identifier : Sendable, CustomDebugStringConvertible, Equatable, Hashable {
+
+        /// The dock accessory's category.
+        public let category: DockAccessory.Category
+
+        /// The dock accessory's name.
+        public let name: String
+
+        /// The dock accessory's unique identifier.
+        public let uuid: UUID
+
+        /// The text description of the dock accessory state.
+        public var debugDescription: String { get }
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (lhs: DockAccessory.Identifier, rhs: DockAccessory.Identifier) -> Bool
+
+        /// Hashes the essential components of this value by feeding them into the
+        /// given hasher.
+        ///
+        /// Implement this method to conform to the `Hashable` protocol. The
+        /// components used for hashing must be the same as the components compared
+        /// in your type's `==` operator implementation. Call `hasher.combine(_:)`
+        /// with each of these components.
+        ///
+        /// - Important: In your implementation of `hash(into:)`,
+        ///   don't call `finalize()` on the `hasher` instance provided,
+        ///   or replace it with a different instance.
+        ///   Doing so may become a compile-time error in the future.
+        ///
+        /// - Parameter hasher: The hasher to use when combining the components
+        ///   of this instance.
+        public func hash(into hasher: inout Hasher)
+
+        /// The hash value.
+        ///
+        /// Hash values are not guaranteed to be equal across different executions of
+        /// your program. Do not save hash values to use during a future execution.
+        ///
+        /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+        ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+        ///   The compiler provides an implementation for `hashValue` for you.
+        public var hashValue: Int { get }
+    }
+
+    /// The set of camera orientations used to extract coordinates.
+    public enum CameraOrientation : Sendable, Equatable, Hashable {
+
+        /// The orientation is unknown.
+        case unknown
+
+        /// The orientation is portrait.
+        case portrait
+
+        /// The orientation is portrait, upside down.
+        case portraitUpsideDown
+
+        /// The orientation is landscape right.
+        case landscapeRight
+
+        /// The orientation is landscape left.
+        case landscapeLeft
+
+        /// The orientation is facing up.
+        case faceUp
+
+        /// The orientation is facing down.
+        case faceDown
+
+        /// The orientation corresponds to the unit rectangle.
+        case corrected
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (a: DockAccessory.CameraOrientation, b: DockAccessory.CameraOrientation) -> Bool
+
+        /// Hashes the essential components of this value by feeding them into the
+        /// given hasher.
+        ///
+        /// Implement this method to conform to the `Hashable` protocol. The
+        /// components used for hashing must be the same as the components compared
+        /// in your type's `==` operator implementation. Call `hasher.combine(_:)`
+        /// with each of these components.
+        ///
+        /// - Important: In your implementation of `hash(into:)`,
+        ///   don't call `finalize()` on the `hasher` instance provided,
+        ///   or replace it with a different instance.
+        ///   Doing so may become a compile-time error in the future.
+        ///
+        /// - Parameter hasher: The hasher to use when combining the components
+        ///   of this instance.
+        public func hash(into hasher: inout Hasher)
+
+        /// The hash value.
+        ///
+        /// Hash values are not guaranteed to be equal across different executions of
+        /// your program. Do not save hash values to use during a future execution.
+        ///
+        /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+        ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+        ///   The compiler provides an implementation for `hashValue` for you.
+        public var hashValue: Int { get }
+    }
+
+    /// A collection of tracking information about the camera currently in use.
+    ///
+    /// Use this class in conjuction with ``DockAccessory/track(_:cameraInformation:)-4yl9b`` and
+    /// ``DockAccessory/track(_:cameraInformation:)-44mwn``.
+    public struct CameraInformation : Sendable {
+
+        /// The capture device generating the video.
+        public let captureDevice: AVCaptureDevice.DeviceType
+
+        /// The physical position of the capture device.
+        public let cameraPosition: AVCaptureDevice.Position
+
+        /// The orientation of the capture device.
+        public let orientation: DockAccessory.CameraOrientation
+
+        /// A matrix that represents the characteristics of the lens.
+        public let cameraIntrinsics: matrix_float3x3?
+
+        /// The size of the video frame.
+        public let referenceDimensions: CGSize?
+
+        /// Creates an object that describes the camera in use for tracking.
+        ///
+        /// - Parameters:
+        ///     - captureDevice: The capture device generating the video.
+        ///     - cameraPosition: The physical position of the capture device.
+        ///     - orientation: The orientation of the capture device.
+        ///     - cameraIntrinsics: A matrix that represents the characteristics of the lens.
+        ///     - referenceDimensions: The size of the video frame.
+        public init(captureDevice: AVCaptureDevice.DeviceType, cameraPosition: AVCaptureDevice.Position, orientation: DockAccessory.CameraOrientation, cameraIntrinsics: matrix_float3x3?, referenceDimensions: CGSize?)
+    }
+
+    /// The state of a dock accessory.
+    public enum State : Sendable, Equatable, Hashable, CustomDebugStringConvertible {
+
+        /// The dock accessory contains a device.
+        case undocked
+
+        /// The dock accessory doesn't contain a device.
+        case docked
+
+        /// The text description of the dock accessory state.
+        public var debugDescription: String { get }
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (a: DockAccessory.State, b: DockAccessory.State) -> Bool
+
+        /// Hashes the essential components of this value by feeding them into the
+        /// given hasher.
+        ///
+        /// Implement this method to conform to the `Hashable` protocol. The
+        /// components used for hashing must be the same as the components compared
+        /// in your type's `==` operator implementation. Call `hasher.combine(_:)`
+        /// with each of these components.
+        ///
+        /// - Important: In your implementation of `hash(into:)`,
+        ///   don't call `finalize()` on the `hasher` instance provided,
+        ///   or replace it with a different instance.
+        ///   Doing so may become a compile-time error in the future.
+        ///
+        /// - Parameter hasher: The hasher to use when combining the components
+        ///   of this instance.
+        public func hash(into hasher: inout Hasher)
+
+        /// The hash value.
+        ///
+        /// Hash values are not guaranteed to be equal across different executions of
+        /// your program. Do not save hash values to use during a future execution.
+        ///
+        /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+        ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+        ///   The compiler provides an implementation for `hashValue` for you.
+        public var hashValue: Int { get }
+    }
+
+    /// Types of supported dock accesories.
+    public enum Category : Codable, Sendable, Equatable, Hashable, CustomDebugStringConvertible {
+
+        /// The dock accessory is a tracking stand.
+        case trackingStand
+
+        /// The text description of the dock accessory state.
+        public var debugDescription: String { get }
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (a: DockAccessory.Category, b: DockAccessory.Category) -> Bool
+
+        /// Hashes the essential components of this value by feeding them into the
+        /// given hasher.
+        ///
+        /// Implement this method to conform to the `Hashable` protocol. The
+        /// components used for hashing must be the same as the components compared
+        /// in your type's `==` operator implementation. Call `hasher.combine(_:)`
+        /// with each of these components.
+        ///
+        /// - Important: In your implementation of `hash(into:)`,
+        ///   don't call `finalize()` on the `hasher` instance provided,
+        ///   or replace it with a different instance.
+        ///   Doing so may become a compile-time error in the future.
+        ///
+        /// - Parameter hasher: The hasher to use when combining the components
+        ///   of this instance.
+        public func hash(into hasher: inout Hasher)
+
+        /// Encodes this value into the given encoder.
+        ///
+        /// If the value fails to encode anything, `encoder` will encode an empty
+        /// keyed container in its place.
+        ///
+        /// This function throws an error if any values are invalid for the given
+        /// encoder's format.
+        ///
+        /// - Parameter encoder: The encoder to write data to.
+        public func encode(to encoder: any Encoder) throws
+
+        /// The hash value.
+        ///
+        /// Hash values are not guaranteed to be equal across different executions of
+        /// your program. Do not save hash values to use during a future execution.
+        ///
+        /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+        ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+        ///   The compiler provides an implementation for `hashValue` for you.
+        public var hashValue: Int { get }
+
+        /// Creates a new instance by decoding from the given decoder.
+        ///
+        /// This initializer throws an error if reading from the decoder fails, or
+        /// if the data read is corrupted or otherwise invalid.
+        ///
+        /// - Parameter decoder: The decoder to read data from.
+        public init(from decoder: any Decoder) throws
+    }
+
+    /// An observation of the contents of a single video frame.
+    ///
+    /// This object represents an observation about a single video frame, including information about the type of subject, the coordinates of the subject, and the angle of the subject's face. DockKit generates tracking
+    /// vectors from this frame information.
+    /// When performing your own tracking, you provide one or more ``DockAccessory/Observation`` objects to ``track(_:cameraInformation:)-44mwn``.
+    public struct Observation : Sendable {
+
+        /// The available observation types.
+        public enum ObservationType : Sendable, Equatable, Hashable {
+
+            /// The frame contains a human face.
+            case humanFace
+
+            /// The frame contains a human body.
+            case humanBody
+
+            /// The frame contains an object other than a human face or body.
+            case object
+
+            /// Returns a Boolean value indicating whether two values are equal.
+            ///
+            /// Equality is the inverse of inequality. For any values `a` and `b`,
+            /// `a == b` implies that `a != b` is `false`.
+            ///
+            /// - Parameters:
+            ///   - lhs: A value to compare.
+            ///   - rhs: Another value to compare.
+            public static func == (a: DockAccessory.Observation.ObservationType, b: DockAccessory.Observation.ObservationType) -> Bool
+
+            /// Hashes the essential components of this value by feeding them into the
+            /// given hasher.
+            ///
+            /// Implement this method to conform to the `Hashable` protocol. The
+            /// components used for hashing must be the same as the components compared
+            /// in your type's `==` operator implementation. Call `hasher.combine(_:)`
+            /// with each of these components.
+            ///
+            /// - Important: In your implementation of `hash(into:)`,
+            ///   don't call `finalize()` on the `hasher` instance provided,
+            ///   or replace it with a different instance.
+            ///   Doing so may become a compile-time error in the future.
+            ///
+            /// - Parameter hasher: The hasher to use when combining the components
+            ///   of this instance.
+            public func hash(into hasher: inout Hasher)
+
+            /// The hash value.
+            ///
+            /// Hash values are not guaranteed to be equal across different executions of
+            /// your program. Do not save hash values to use during a future execution.
+            ///
+            /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+            ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+            ///   The compiler provides an implementation for `hashValue` for you.
+            public var hashValue: Int { get }
+        }
+
+        /// The type of subject in the frame.
+        public let type: DockAccessory.Observation.ObservationType
+
+        /// A unique identifier representing the subject in the frame.
+        public let identifier: Int
+
+        /// The coordinates of the subject in the frame.
+        ///
+        /// This is a unit rectangle with coordinate values between `0` and `1`.
+        public let rect: CGRect
+
+        /// The angle of the face in radians.
+        ///
+        /// A value of `0` indicates the face of the subject in the frame is looking directly at the camera. A negative value indicates the subject's face is oriented to the left, while positive value indicates the face is oriented to the right.
+        public let faceYawAngle: Measurement<UnitAngle>?
+
+        /// Creates a new observation.
+        ///
+        /// - Parameters:
+        ///     - identifier: A unique identifier representing the subject in the frame.
+        ///     - type: The type of subject in the frame.
+        ///     - rect: The coordinates of the subject in the frame.
+        ///     - faceYawAngle: The angle of the subject's face in radians.
+        public init(identifier: Int, type: DockAccessory.Observation.ObservationType, rect: CGRect, faceYawAngle: Measurement<UnitAngle>? = nil)
+    }
+
+    /// An event that indicates a change in the state of a dock accessory.
+    ///
+    /// DockKit generates this event when a device docks or undocks from the dock accessory, or when a person presses the tracking button.
+    /// To iterate the stream of state changes, see ``DockAccessoryManager/accessoryStateChanges``.
+    public struct StateChange : Sendable {
+
+        /// The dock accessory that generated the event.
+        public let accessory: DockAccessory?
+
+        /// The state of the dock accessory associated with the event.
+        public let state: DockAccessory.State
+
+        ///  The state of the tracking button on the dock accessory.
+        ///
+        /// Every dock accessory has a tracking button that a person presses to turn on or off subject tracking.
+        public let trackingButtonEnabled: Bool
+    }
+
+    /// An asynchronous sequence of dock accessory state changes.
+    public struct StateChanges : AsyncSequence {
+
+        /// A dock accessory state change.
+        public typealias Element = DockAccessory.StateChange
+
+        /// An object that allows iteration over dock accessory state changes.
+        public struct Iterator : AsyncIteratorProtocol {
+
+            /// Provide the next dock accessory state change in the list.
+            public mutating func next() async -> DockAccessory.StateChange?
+
+            @available(iOS 17, tvOS 13.0, watchOS 6.0, macOS 14, *)
+            public typealias Element = DockAccessory.StateChange
+        }
+
+        /// Creates and returns an iterator that traverses the list of dock accessory state changes.
+        public func makeAsyncIterator() -> DockAccessory.StateChanges.Iterator
+
+        /// The type of asynchronous iterator that produces elements of this
+        /// asynchronous sequence.
+        @available(iOS 17, tvOS 13.0, watchOS 6.0, macOS 14, *)
+        public typealias AsyncIterator = DockAccessory.StateChanges.Iterator
+    }
+
+    /// An event that indicates the state of a dock accessory's current position and speed.
+    ///
+    /// This event indicates the dock accessory's current velocity
+    /// and position along each supported axis of rotation. For more information, see ``DockAccessory/motionStates-swift.property``.
+    public struct MotionState : Sendable {
+
+        /// The angular velocity of each axis of rotation in radians.
+        ///
+        /// The X, Y, and Z values are in radians per second corresponding to pitch, yaw, and roll axes.
+        public let angularVelocities: Vector3D
+
+        /// The angles of the axes, in radians.
+        public let angularPositions: Vector3D
+
+        /// The current time, in UNIX epoch.
+        public let timestamp: TimeInterval
+
+        /// The error, if any.
+        public let error: (any Error)?
+    }
+
+    /// An asynchronous sequence of orientation and velocity updates from the device.
+    public struct MotionStates : AsyncSequence {
+
+        /// A dock accessory motion state.
+        public typealias Element = DockAccessory.MotionState
+
+        /// An object that allows iteration over dock accessory motion states.
+        public struct Iterator : AsyncIteratorProtocol {
+
+            /// Provide the next dock accessory motion state in the list.
+            public mutating func next() async -> DockAccessory.MotionState?
+
+            @available(iOS 17, tvOS 13.0, watchOS 6.0, macOS 14, *)
+            public typealias Element = DockAccessory.MotionState
+        }
+
+        /// Creates and returns an iterator that traverses the list of dock accessory motion states.
+        public func makeAsyncIterator() -> DockAccessory.MotionStates.Iterator
+
+        /// The type of asynchronous iterator that produces elements of this
+        /// asynchronous sequence.
+        @available(iOS 17, tvOS 13.0, watchOS 6.0, macOS 14, *)
+        public typealias AsyncIterator = DockAccessory.MotionStates.Iterator
+    }
+
+    /// The subjects that the dock can track.
+    @available(iOS 18.0, macOS 15.0, *)
+    public enum TrackedSubjectType : Sendable, Equatable {
+
+        /// Tracked subject contains a person.
+        case person(DockAccessory.TrackedPerson)
+
+        /// Tracked subject contains an object.
+        case object(DockAccessory.TrackedObject)
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (a: DockAccessory.TrackedSubjectType, b: DockAccessory.TrackedSubjectType) -> Bool
+    }
+
+    /// The state of a tracked person in the active tracking session.
+    @available(iOS 18.0, macOS 15.0, *)
+    public struct TrackedPerson : Equatable, Sendable {
+
+        /// A unique identifier representing the tracked person.
+        /// This identifier persists as long as the dock tracks the person.
+        /// The value is random and doesn't persist across sessions.
+        public var identifier: UUID
+
+        /// The bounding box rectangle of the tracked person's face in the frame.
+        ///
+        /// This is a unit rectangle with coordinate values between `0` and `1` with the origin on the top left corner.
+        public var rect: CGRect
+
+        /// The saliency rank of the person the dock is tracking.
+        /// A lower rank indicates higher importance of the person.
+        /// This property is `nil` if the saliency ranking isn't set or the person isn't salient.
+        public var saliencyRank: Int?
+
+        /// The confidence score of the person speaking at the moment of tracking.
+        /// The range is from `0.0` to `1.0`, or `nil` if the framework hasn't calculated the score.
+        public var speakingConfidence: Double?
+
+        /// The confidence of the person looking directly at the camera.
+        /// The range is from `0.0` to `1.0`, or `nil` if the framework hasn't calculated the score.
+        public var lookingAtCameraConfidence: Double?
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (a: DockAccessory.TrackedPerson, b: DockAccessory.TrackedPerson) -> Bool
+    }
+
+    /// The state of a tracked object in the active tracking session.
+    @available(iOS 18.0, macOS 15.0, *)
+    public struct TrackedObject : Equatable, Sendable {
+
+        /// A unique identifier for the tracked object.
+        /// This identifier persists as long as the dock tracks the object.
+        /// The value is random and doesn't persist across sessions.
+        public var identifier: UUID
+
+        /// The bounding box rectangle of the tracked object in the frame.
+        ///
+        /// This is a unit rectangle with coordinate values between `0` and `1` with the origin on the top left corner.
+        public var rect: CGRect
+
+        /// The saliency rank of the object the dock is tracking.
+        /// A lower rank indicates higher importance of the object.
+        /// This property is `nil` if the saliency ranking isn't set or the object isn't salient.
+        public var saliencyRank: Int?
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (a: DockAccessory.TrackedObject, b: DockAccessory.TrackedObject) -> Bool
+    }
+
+    /// A representation of the active tracking session state.
+    ///
+    /// The active tracking session emits this state 10 times per second.
+    @available(iOS 18.0, macOS 15.0, *)
+    public struct TrackingState : Sendable {
+
+        /// The timestamp indicating when the dock captured the tracking state.
+        public var time: Date
+
+        /// A collection of actively tracked subjects.
+        public var trackedSubjects: [DockAccessory.TrackedSubjectType]
+
+        public var description: String { get }
+    }
+
+    /// An asynchronous sequence of tracking session states.
+    @available(iOS 18.0, macOS 15.0, *)
+    public struct TrackingStates : AsyncSequence {
+
+        /// A tracking session state.
+        public typealias Element = DockAccessory.TrackingState
+
+        /// An object that allows iteration over tracking states.
+        public struct Iterator : AsyncIteratorProtocol {
+
+            /// Provide the next tracking session state in the list.
+            public mutating func next() async -> DockAccessory.TrackingState?
+
+            @available(iOS 18.0, tvOS 13.0, watchOS 6.0, macOS 15.0, *)
+            public typealias Element = DockAccessory.TrackingState
+        }
+
+        /// Create and return an iterator that traverses the list of tracking session states.
+        public func makeAsyncIterator() -> DockAccessory.TrackingStates.Iterator
+
+        /// The type of asynchronous iterator that produces elements of this
+        /// asynchronous sequence.
+        @available(iOS 18.0, tvOS 13.0, watchOS 6.0, macOS 15.0, *)
+        public typealias AsyncIterator = DockAccessory.TrackingStates.Iterator
+    }
+
+    /// An enumeration that represents an accessory event.
+    ///
+    /// This event propagates input from the dock accessory. Example events are button presses or requests for common camera controls.
+    @available(iOS 17.4, macOS 14.4, *)
+    public enum AccessoryEvent : Sendable, Equatable, Hashable {
+
+        /// A button press event on the dock accessory.
+        ///
+        /// - Parameters:
+        ///     - id: A unique, vendor-specific identifier for the given button.
+        ///     - pressed: `true` on button press down, `false` on button release up.
+        case button(id: Int, pressed: Bool)
+
+        /// A camera shutter toggle event.
+        case cameraShutter
+
+        /// A camera flip event that indicates a request to switch between back and front cameras.
+        case cameraFlip
+
+        /// A camera zoom event.
+        ///
+        /// - Parameters:
+        ///     - factor: A zoom multiplier. For example, a value of `2.0` doubles the size of an image’s subject and halves the field of view.
+        case cameraZoom(factor: Double)
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (a: DockAccessory.AccessoryEvent, b: DockAccessory.AccessoryEvent) -> Bool
+
+        /// Hashes the essential components of this value by feeding them into the
+        /// given hasher.
+        ///
+        /// Implement this method to conform to the `Hashable` protocol. The
+        /// components used for hashing must be the same as the components compared
+        /// in your type's `==` operator implementation. Call `hasher.combine(_:)`
+        /// with each of these components.
+        ///
+        /// - Important: In your implementation of `hash(into:)`,
+        ///   don't call `finalize()` on the `hasher` instance provided,
+        ///   or replace it with a different instance.
+        ///   Doing so may become a compile-time error in the future.
+        ///
+        /// - Parameter hasher: The hasher to use when combining the components
+        ///   of this instance.
+        public func hash(into hasher: inout Hasher)
+
+        /// The hash value.
+        ///
+        /// Hash values are not guaranteed to be equal across different executions of
+        /// your program. Do not save hash values to use during a future execution.
+        ///
+        /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+        ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+        ///   The compiler provides an implementation for `hashValue` for you.
+        public var hashValue: Int { get }
+    }
+
+    /// An asynchronous sequence of dock accessory events.
+    @available(iOS 17.4, macOS 14.4, *)
+    public struct AccessoryEvents : AsyncSequence {
+
+        /// A dock accessory event.
+        public typealias Element = DockAccessory.AccessoryEvent
+
+        /// An object that allows iteration over dock accessory events.
+        public struct Iterator : AsyncIteratorProtocol {
+
+            /// Provide the next dock accessory event in the list.
+            public mutating func next() async -> DockAccessory.AccessoryEvent?
+
+            @available(iOS 17.4, tvOS 13.0, watchOS 6.0, macOS 14.4, *)
+            public typealias Element = DockAccessory.AccessoryEvent
+        }
+
+        /// Creates and returns an iterator that traverses the list of dock accessory events.
+        public func makeAsyncIterator() -> DockAccessory.AccessoryEvents.Iterator
+
+        /// The type of asynchronous iterator that produces elements of this
+        /// asynchronous sequence.
+        @available(iOS 17.4, tvOS 13.0, watchOS 6.0, macOS 14.4, *)
+        public typealias AsyncIterator = DockAccessory.AccessoryEvents.Iterator
+    }
+
+    /// Events from the accessory that signify button presses or common camera controls.
+    ///
+    /// - Returns: Accessory events related to button presses and common camera controls.
+    /// - Throws: ``DockKitError/notConnected`` if device is disconnected, or ``DockKitError/notSupportedByDevice`` if device doesn't support updates.
+    @available(iOS 17.4, macOS 14.4, *)
+    final public var accessoryEvents: DockAccessory.AccessoryEvents { get throws }
+
+    /// The charging state of an accessory battery
+    @available(iOS 18.0, macOS 15.0, *)
+    public enum BatteryChargeState : Sendable, Equatable, Hashable {
+
+        /// The battery is not charging.
+        case notCharging
+
+        /// The battery is charging.
+        case charging
+
+        /// The battery is not a chargeable battery.
+        case notChargeable
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (a: DockAccessory.BatteryChargeState, b: DockAccessory.BatteryChargeState) -> Bool
+
+        /// Hashes the essential components of this value by feeding them into the
+        /// given hasher.
+        ///
+        /// Implement this method to conform to the `Hashable` protocol. The
+        /// components used for hashing must be the same as the components compared
+        /// in your type's `==` operator implementation. Call `hasher.combine(_:)`
+        /// with each of these components.
+        ///
+        /// - Important: In your implementation of `hash(into:)`,
+        ///   don't call `finalize()` on the `hasher` instance provided,
+        ///   or replace it with a different instance.
+        ///   Doing so may become a compile-time error in the future.
+        ///
+        /// - Parameter hasher: The hasher to use when combining the components
+        ///   of this instance.
+        public func hash(into hasher: inout Hasher)
+
+        /// The hash value.
+        ///
+        /// Hash values are not guaranteed to be equal across different executions of
+        /// your program. Do not save hash values to use during a future execution.
+        ///
+        /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+        ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+        ///   The compiler provides an implementation for `hashValue` for you.
+        public var hashValue: Int { get }
+    }
+
+    /// A struct that represents an accessory battery state.
+    ///
+    /// This state is emitted when the battery level changes on accessory.
+    @available(iOS 18.0, macOS 15.0, *)
+    public struct BatteryState : Sendable, Equatable, Hashable {
+
+        /// The name of the battery that is sending this state from accessory
+        public let name: String
+
+        /// Current charge percentage (0..1) of the battery
+        public let batteryLevel: Double
+
+        /// True when accessory deems its charge to be too low to function properly
+        public let lowBattery: Bool
+
+        /// An enumeration representing the charge state of the battery
+        public let chargeState: DockAccessory.BatteryChargeState
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (a: DockAccessory.BatteryState, b: DockAccessory.BatteryState) -> Bool
+
+        /// Hashes the essential components of this value by feeding them into the
+        /// given hasher.
+        ///
+        /// Implement this method to conform to the `Hashable` protocol. The
+        /// components used for hashing must be the same as the components compared
+        /// in your type's `==` operator implementation. Call `hasher.combine(_:)`
+        /// with each of these components.
+        ///
+        /// - Important: In your implementation of `hash(into:)`,
+        ///   don't call `finalize()` on the `hasher` instance provided,
+        ///   or replace it with a different instance.
+        ///   Doing so may become a compile-time error in the future.
+        ///
+        /// - Parameter hasher: The hasher to use when combining the components
+        ///   of this instance.
+        public func hash(into hasher: inout Hasher)
+
+        /// The hash value.
+        ///
+        /// Hash values are not guaranteed to be equal across different executions of
+        /// your program. Do not save hash values to use during a future execution.
+        ///
+        /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+        ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+        ///   The compiler provides an implementation for `hashValue` for you.
+        public var hashValue: Int { get }
+    }
+
+    /// An asynchronous sequence of dock accessory battery states.
+    @available(iOS 18.0, macOS 15.0, *)
+    public struct BatteryStates : AsyncSequence {
+
+        /// A dock accessory event.
+        public typealias Element = DockAccessory.BatteryState
+
+        /// An object that allows iteration over dock accessory events.
+        public struct Iterator : AsyncIteratorProtocol {
+
+            /// Provide the next dock accessory event in the list.
+            public mutating func next() async -> DockAccessory.BatteryState?
+
+            @available(iOS 18.0, tvOS 13.0, watchOS 6.0, macOS 15.0, *)
+            public typealias Element = DockAccessory.BatteryState
+        }
+
+        /// Creates and returns an iterator that traverses the list of dock accessory events.
+        public func makeAsyncIterator() -> DockAccessory.BatteryStates.Iterator
+
+        /// The type of asynchronous iterator that produces elements of this
+        /// asynchronous sequence.
+        @available(iOS 18.0, tvOS 13.0, watchOS 6.0, macOS 15.0, *)
+        public typealias AsyncIterator = DockAccessory.BatteryStates.Iterator
+    }
+
+    /// Battery states from the accessory that indicate changes in battery charge or readiness
+    ///
+    /// - Returns: Accessory events related to button presses and common camera controls.
+    /// - Throws: ``DockKitError/notConnected`` if device is disconnected, or ``DockKitError/notSupportedByDevice`` if device doesn't support updates.
+    @available(iOS 18.0, macOS 15.0, *)
+    final public var batteryStates: DockAccessory.BatteryStates { get throws }
+
+    /// The mode to control framing of the subject when tracking.
+    ///
+    /// The default is ``automatic``, which works well for most situations.
+    /// ``center`` keeps the subject close to the middle of frame. Similarly, ``left`` and ``right``
+    /// aligns the subject close to the left and right third of the frame (left, center, right).
+    public enum FramingMode : Codable, Sendable, Hashable, Equatable {
+
+        /// Automatically frame the subject.
+        case automatic
+
+        /// Frame the subject in the center of the frame.
+        case center
+
+        /// Frame the subject in the left side of the frame.
+        case left
+
+        /// Frame the subject in the right side of the frame.
+        case right
+
+        /// Hashes the essential components of this value by feeding them into the
+        /// given hasher.
+        ///
+        /// Implement this method to conform to the `Hashable` protocol. The
+        /// components used for hashing must be the same as the components compared
+        /// in your type's `==` operator implementation. Call `hasher.combine(_:)`
+        /// with each of these components.
+        ///
+        /// - Important: In your implementation of `hash(into:)`,
+        ///   don't call `finalize()` on the `hasher` instance provided,
+        ///   or replace it with a different instance.
+        ///   Doing so may become a compile-time error in the future.
+        ///
+        /// - Parameter hasher: The hasher to use when combining the components
+        ///   of this instance.
+        public func hash(into hasher: inout Hasher)
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (a: DockAccessory.FramingMode, b: DockAccessory.FramingMode) -> Bool
+
+        /// Encodes this value into the given encoder.
+        ///
+        /// If the value fails to encode anything, `encoder` will encode an empty
+        /// keyed container in its place.
+        ///
+        /// This function throws an error if any values are invalid for the given
+        /// encoder's format.
+        ///
+        /// - Parameter encoder: The encoder to write data to.
+        public func encode(to encoder: any Encoder) throws
+
+        /// The hash value.
+        ///
+        /// Hash values are not guaranteed to be equal across different executions of
+        /// your program. Do not save hash values to use during a future execution.
+        ///
+        /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+        ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+        ///   The compiler provides an implementation for `hashValue` for you.
+        public var hashValue: Int { get }
+
+        /// Creates a new instance by decoding from the given decoder.
+        ///
+        /// This initializer throws an error if reading from the decoder fails, or
+        /// if the data read is corrupted or otherwise invalid.
+        ///
+        /// - Parameter decoder: The decoder to read data from.
+        public init(from decoder: any Decoder) throws
+    }
+
+    /// Character animations that describe how to move the dock accessory.
+    ///
+    /// Each animation executes on a predefined trajectory. See ``animate(motion:)`` for more information.
+    public enum Animation : Sendable, Equatable, Hashable {
+
+        /// The dock accessory moves upwards towards center.
+        case wakeup
+
+        /// The dock accessory traces a vertical head nod.
+        case yes
+
+        /// The dock accessory traces a horizontal head shake.
+        case no
+
+        /// The dock accessory performs a quick tilt and snaps back with some oscillation.
+        case kapow
+
+        /// Returns a Boolean value indicating whether two values are equal.
+        ///
+        /// Equality is the inverse of inequality. For any values `a` and `b`,
+        /// `a == b` implies that `a != b` is `false`.
+        ///
+        /// - Parameters:
+        ///   - lhs: A value to compare.
+        ///   - rhs: Another value to compare.
+        public static func == (a: DockAccessory.Animation, b: DockAccessory.Animation) -> Bool
+
+        /// Hashes the essential components of this value by feeding them into the
+        /// given hasher.
+        ///
+        /// Implement this method to conform to the `Hashable` protocol. The
+        /// components used for hashing must be the same as the components compared
+        /// in your type's `==` operator implementation. Call `hasher.combine(_:)`
+        /// with each of these components.
+        ///
+        /// - Important: In your implementation of `hash(into:)`,
+        ///   don't call `finalize()` on the `hasher` instance provided,
+        ///   or replace it with a different instance.
+        ///   Doing so may become a compile-time error in the future.
+        ///
+        /// - Parameter hasher: The hasher to use when combining the components
+        ///   of this instance.
+        public func hash(into hasher: inout Hasher)
+
+        /// The hash value.
+        ///
+        /// Hash values are not guaranteed to be equal across different executions of
+        /// your program. Do not save hash values to use during a future execution.
+        ///
+        /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+        ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+        ///   The compiler provides an implementation for `hashValue` for you.
+        public var hashValue: Int { get }
+    }
+
+    /// Soft limits on multiple axes of rotation.
+    public struct Limits : Sendable {
+
+        /// A description of a limit placed on an axis of rotation.
+        ///
+        /// Zero is the default minimum angular speed.
+        /// Invalid limit specifications include minimum position greater than maximum position, minimum position equals maximum position, and maximum speed is less than zero.
+        public struct Limit : Sendable {
+
+            /// The valid range that the dock accessory moves.
+            public let positionRange: Range<Double>
+
+            /// The maximum speed that the dock accessory moves.
+            public let maximumSpeed: Double
+
+            public init(positionRange: Range<Double>, maximumSpeed: Double) throws
+        }
+
+        /// The left and right limit.
+        public let yaw: DockAccessory.Limits.Limit?
+
+        /// The up and down limit.
+        public let pitch: DockAccessory.Limits.Limit?
+
+        /// The side to side limit.
+        public let roll: DockAccessory.Limits.Limit?
+
+        /// Creates the limit object.
+        ///
+        /// - Parameters:
+        ///    - yaw: The left and right limit.
+        ///    - pitch: The up and down limit.
+        ///    - roll: The side to side limit.
+        public init(yaw: DockAccessory.Limits.Limit?, pitch: DockAccessory.Limits.Limit?, roll: DockAccessory.Limits.Limit?)
+    }
+
+    /// The current framing mode.
+    final public var framingMode: DockAccessory.FramingMode { get }
+
+    /// The area in the video frame in which the dock accessory tracks a subject.
+    final public var regionOfInterest: CGRect { get }
+
+    /// Motion information from the dock accessory that includes current orientation and velocity of all axes.
+    ///
+    /// This value holds a ``DockAccessory/MotionStates-swift.struct`` object, an asynchronous iterator used to find the desired dock accessory.
+    /// - Returns: Motion states with the current orientation and velocity. The dock accessory controls the rate at which the state changes.
+    /// - Throws: ``DockKitError/notConnected`` if device is disconnected, or ``DockKitError/notSupportedByDevice`` if device doesn't support updates.
+    final public var motionStates: DockAccessory.MotionStates { get throws }
+
+    /// Provides an access to the asynchronous sequence of tracking session states
+    ///
+    /// - Returns: A `DockAccessory.TrackingStates` instance representing the current state of tracking.
+    /// - Throws: ``DockKitError/notConnected`` if device is disconnected, or ``DockKitError/notSupportedByDevice`` if device doesn't support updates.
+    @available(iOS 18.0, macOS 15.0, *)
+    final public var trackingStates: DockAccessory.TrackingStates { get throws }
+
+    /// Current limits for the axes of rotation and maximum angular velocity.
+    ///
+    /// - Returns: The pitch, yaw, and roll limit. Each value can be `nil` if it's unsupported. See ``DockAccessory/Limits-swift.struct`` for more information.
+    /// - Throws: ``DockKitError/notConnected`` if the device has disconnected.
+    final public var limits: DockAccessory.Limits { get throws }
+
+    /// Returns a Boolean value indicating whether two values are equal.
+    ///
+    /// Equality is the inverse of inequality. For any values `a` and `b`,
+    /// `a == b` implies that `a != b` is `false`.
+    ///
+    /// - Parameters:
+    ///   - lhs: A value to compare.
+    ///   - rhs: Another value to compare.
+    public static func == (lhs: DockAccessory, rhs: DockAccessory) -> Bool
+
+    /// Creates a unique identifier representing the object.
+    final public func hash(into hasher: inout Hasher)
+
+    /// Sets the position of each axis of orientation to radians for pitch, yaw, and roll.
+    ///
+    /// This method works only when you disable system tracking.
+    ///
+    /// - Parameters:
+    ///     - rotation: The spatial framework's Vector3D with X, Y, and Z corresponding to radians of pitch, yaw, and roll axes.
+    ///     - duration: The duration, in seconds, to reach the target orientation.
+    ///     - relative: Calculate the relative-to-current positions, if set to  `true`; otherwise, move to an absolute position.
+    /// - Returns: An object that reports progress during the animation sequence.
+    /// - Throws: ``DockKitError/frameRateTooHigh`` if calling the method too frequently, or ``DockKitError/notSupported`` in macOS.
+    @available(iOS, introduced: 17, deprecated: 18, message: "please use async version of setOrientation")
+    @available(macOS, introduced: 14, deprecated: 15, message: "please use async version of setOrientation")
+    final public func setOrientation(_ rotation: Vector3D, duration: Duration = .seconds(0), relative: Bool = false) throws -> Progress
+
+    /// Sets the position of each axis of orientation to radians for pitch, yaw, and roll.
+    ///
+    /// This method works only when you disable system tracking.
+    ///
+    /// - Parameters:
+    ///     - rotation: The spatial framework's Rotation3D with X, Y, and Z corresponding to radians of pitch, yaw, and roll axes.
+    ///     - duration: The duration, in seconds, to reach the target orientation.
+    ///     - relative: Calculate the relative-to-current positions, if set to  `true`; otherwise, move to an absolute position.
+    /// - Returns: A progress object that reports the progress towards the target orientation.
+    /// - Throws: ``DockKitError/frameRateTooHigh`` if calling the method too frequently, or ``DockKitError/notSupported`` in macOS.
+    @available(iOS, introduced: 17, deprecated: 18, message: "please use async version of setOrientation")
+    @available(macOS, introduced: 14, deprecated: 15, message: "please use async version of setOrientation")
+    final public func setOrientation(_ rotation: Rotation3D, duration: Duration = .seconds(0), relative: Bool = false) throws -> Progress
+
+    /// Sets the position of each axis of orientation to radians for pitch, yaw, and roll.
+    ///
+    /// This method works only when you disable system tracking.
+    ///
+    /// - Parameters:
+    ///     - rotation: The spatial framework's Vector3D with X, Y, and Z corresponding to radians of pitch, yaw, and roll axes.
+    ///     - duration: The duration, in seconds, to reach the target orientation.
+    ///     - relative: Calculate the relative-to-current positions, if set to  `true`; otherwise, move to an absolute position.
+    /// - Returns: An object that reports progress during the animation sequence.
+    /// - Throws: ``DockKitError/frameRateTooHigh`` if calling the method too frequently, or ``DockKitError/notSupported`` in macOS.
+    @available(iOS 18, macOS 15, *)
+    final public func setOrientation(_ rotation: Vector3D, duration: Duration = .seconds(0), relative: Bool = false) async throws -> Progress
+
+    /// Sets the position of each axis of orientation to radians for pitch, yaw, and roll.
+    ///
+    /// This method works only when you disable system tracking.
+    ///
+    /// - Parameters:
+    ///     - rotation: The spatial framework's Rotation3D with X, Y, and Z corresponding to radians of pitch, yaw, and roll axes.
+    ///     - duration: The duration, in seconds, to reach the target orientation.
+    ///     - relative: Calculate the relative-to-current positions, if set to  `true`; otherwise, move to an absolute position.
+    /// - Returns: A progress object that reports the progress towards the target orientation.
+    /// - Throws: ``DockKitError/frameRateTooHigh`` if calling the method too frequently, or ``DockKitError/notSupported`` in macOS.
+    @available(iOS 18, macOS 15, *)
+    final public func setOrientation(_ rotation: Rotation3D, duration: Duration = .seconds(0), relative: Bool = false) async throws -> Progress
+
+    /// Sets the angular velocity of each axis of orientation.
+    ///
+    /// The angular velocity is expressed in radians per second for pitch, yaw, and roll. This method works only when you disable system tracking.
+    /// - Parameter angularVelocity: A Vector3D object of the angular velocity to set, in axis/angle notation, corresponsing to radians per second for pitch, yaw, and roll axes.
+    /// - Throws: ``DockKitError/notConnected`` if the accessory disconnects, or other errors if communication with the accessory fails.
+    final public func setAngularVelocity(_ angularVelocity: Vector3D) async throws
+
+    /// Sets limits for the axes of rotation.
+    ///
+    /// Limits only apply to the current tracking session. Afterwards, the orientation specifications default to the manufacturer limits.
+    /// This method impacts primarily subsequent calls to ``DockAccessory/setOrientation(_:duration:relative:)-2epe2`` and ``DockAccessory/setOrientation(_:duration:relative:)-6b0fl``.
+    /// Limits only apply to the current tracking session. When the session ends, the orientation specifications default to the manufacturer limits.
+    ///
+    /// This method only works when you disable system tracking.
+    ///
+    /// - Parameter limits: The upper and lower limit of orientation, in radians, for each of the supported axes.
+    /// - Throws: An error if all parameters are `nil`, or if the dock accessory doesn't support the given axis.
+    final public func setLimits(_ limits: DockAccessory.Limits) throws
+
+    /// Automatically generate and send tracking vectors to the device.
+    ///
+    /// The device receives tracking vectors based on manually constructed observations.
+    ///
+    /// Disable system tracking, then supply the observations at a fixed rate between 10 and 30 times per second. Any other rate is unsupported.
+    /// Calling this method without first disabling system tracking is a fatal error.
+    ///
+    /// - Parameter data: An array of ``DockAccessory/Observation`` objects indicating the location of objects of interest in the frame.
+    /// - Parameter cameraInformation: The camera currently being used, and the orientation of the device.
+    /// - Throws: ``DockKitError/notSupported`` if called on macOS.
+    final public func track(_ data: [DockAccessory.Observation], cameraInformation: DockAccessory.CameraInformation) async throws
+
+    /// Automatically generate and send tracking vectors to the device.
+    ///
+    /// The device receives tracking vectors based on manually constructed observations.
+    ///
+    /// Disable system tracking, then supply the observations at a fixed rate between 10 and 30 times per second. Any other rate is unsupported.
+    /// Calling this method without first disabling system tracking is a fatal error.
+    ///
+    /// - Parameter data: An array of ``DockAccessory/Observation`` objects indicating the location of objects of interest in the frame.
+    /// - Parameter cameraInformation: The camera currently being used, and the orientation of the device.
+    /// - Parameter image: The captured camera image buffer.
+    /// - Throws: ``DockKitError/notSupported`` if called on macOS.
+    final public func track(_ data: [DockAccessory.Observation], cameraInformation: DockAccessory.CameraInformation, image: CVPixelBuffer) async throws
+
+    /// Automatically generate and send tracking vectors to the device.
+    ///
+    /// The vectors are based on metadata coming from the camera.
+    ///
+    /// Disable system tracking, then supply the observations at a fixed rate between 10 and 30 times per second. Any other rate is unsupported.
+    /// - Parameter metadata: An array of <doc://com.apple.documentation/documentation/avfoundation/avmetadataobject> objects indicating the location of objects within the frame.
+    /// - Parameter cameraInformation: The camera in current use and its orientation.
+    /// - Throws: ``DockKitError/notSupported`` if called on macOS.
+    final public func track(_ metadata: [AVMetadataObject], cameraInformation: DockAccessory.CameraInformation) async throws
+
+    /// Automatically generate and send tracking vectors to the device.
+    ///
+    /// The vectors are based on metadata coming from the camera.
+    ///
+    /// Disable system tracking, then supply the observations at a fixed rate between 10 and 30 times per second. Any other rate is unsupported.
+    /// - Parameter metadata: An array of <doc://com.apple.documentation/documentation/avfoundation/avmetadataobject> objects indicating the location of objects within the frame.
+    /// - Parameter cameraInformation: The camera in current use and its orientation.
+    /// - Parameter image: The captured camera image buffer.
+    /// - Throws: ``DockKitError/notSupported`` if called on macOS.
+    final public func track(_ metadata: [AVMetadataObject], cameraInformation: DockAccessory.CameraInformation, image: CVPixelBuffer) async throws
+
+    /// Selects a subject to track at the supplied coordinates.
+    ///
+    /// There may be times when more than one subject is in a video frame. Use this method to track a specific subject within that frame
+    ///  by passing a  location within the frame. The coordinates are relative to the top left of the video frame, and are values between `0` and `1`. If the framework doesn't detect a subject at the passed coordinates, the method throws an error.
+    ///
+    /// If you disable system tracking, this configuration change applies to any custom tracking for this dock accessory.
+    /// The configuration applies to any camera stream the app has open if system tracking is enabled.
+    ///
+    /// Call this method when implementing your own custom tracking behavior.
+    ///
+    /// - Parameter at: The expected location of the subject in the video frame.
+    /// - Throws: ``DockKitError/notConnected`` if device isn't docked, or other errors if no subject is found at the position.
+    final public func selectSubject(at unitPoint: CGPoint) async throws
+
+    /// Selects subjects to track with specific identifiers
+    ///
+    /// `TrackingStates` provide a list of subjects with their unique identifiers in the video frame. Use this method to select a subset of subjects to track
+    ///  by passing a list of unique identifiers. If you pass an empty list, the system defaults to system tracking (if enabled).
+    ///
+    /// If you disable system tracking, this configuration change applies to any custom tracking for this dock accessory.
+    /// If system tracking is enabled, the configuration applies to any camera stream that the app has open.
+    ///
+    /// Call this method when implementing your own custom tracking behavior.
+    ///
+    /// - Parameter ids: The unique identifiers of subjects in the video frame.
+    /// - Throws: ``DockKitError/notConnected`` if device isn't docked, or other errors if no subject is found at the position.
+    @available(iOS 18.0, macOS 15.0, *)
+    final public func selectSubjects(_ ids: [UUID]) async throws
+
+    /// Customize the dock accessory's tracking behavior.
+    ///
+    /// Use this method to change where DockKit places a subject within the frame. For example, a face may be on the left or right side within the video. If you disable system tracking, this setting applies locally to the current dock accessory only. Otherwise, this setting applies to any active camera stream.
+    ///
+    /// Set the frame mode to the desired value before performing your own custom tracking.
+    ///
+    /// The default is ``FramingMode-swift.enum/automatic``. See ``DockAccessory/FramingMode-swift.enum`` for other values you can use to override.
+    ///
+    ///
+    /// - Parameter mode: The framing mode to set tracking to. See ``DockAccessory/FramingMode-swift.enum`` for more information.
+    /// - Throws: ``DockKitError/notConnected`` if device isn't connected, or ``DockKitError/notSupported`` in macOS.
+    final public func setFramingMode(_ mode: DockAccessory.FramingMode) async throws
+
+    /// Sets the area in the video frame in which the dock accessory tracks a subject.
+    ///
+    /// The region of interest is an limited area within the video frame that DockKit tracks a subject in. The default value is
+    /// `(0,0,1,1)`, which indicates that the whole frame is of interest.
+    ///
+    /// If you disable system tracking, this configuration change applies to any custom tracking for this dock accessory.
+    /// The configuration applies to any camera stream the app has open if system tracking is enabled.
+    ///
+    /// The region of interest doesn't persist; it resets to the entire video frame any time an app exits, backgrounds, or stops tracking.
+    ///
+    /// - Parameter region: The area in the video frame in which the dock accessory tracks a subject.
+    /// - Throws: ``DockKitError/notConnected`` if device isn't connected, or ``DockKitError/notSupported`` if called on macOS.
+    final public func setRegionOfInterest(_ region: CGRect) async throws
+
+    /// Starts an animation sequence.
+    ///
+    /// This method moves the dock accessory along a predefined trajectory to convey a characteristic. Do this only if you disable system tracking.
+    ///
+    /// - Parameter motion: The animation sequence to perform.
+    /// - Throws: ``DockKitError/notConnected`` if device isn't connected, ``DockKitError/frameRateTooHigh`` if calling the method too frequently, or ``DockKitError/notSupported`` in macOS.
+    /// - Returns: A progress object that reports the progress during execution of the animation sequence.
+    final public func animate(motion: DockAccessory.Animation) async throws -> Progress
+
+    /// The hash value.
+    ///
+    /// Hash values are not guaranteed to be equal across different executions of
+    /// your program. Do not save hash values to use during a future execution.
+    ///
+    /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+    ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+    ///   The compiler provides an implementation for `hashValue` for you.
+    final public var hashValue: Int { get }
+}
+
+/// Observe the state of dock accessories and enable or disable system tracking.
+///
+/// `DockAccessoryManager`  enables and disables system tracking for camera-enabled apps, and provides docking and undocking notifications.
+/// If you want to customize the tracking behavior of a dock accessory, use ``DockAccessoryManager/accessoryStateChanges`` to obtain that accessory.
+///
+/// This class is a singleton, so use ``DockAccessoryManager/shared`` to fetch the single instance.
+@available(iOS 17, macOS 14, visionOS 1.0, *)
+public class DockAccessoryManager : @unchecked Sendable {
+
+    /// An indication of whether system tracking is enabled.
+    ///
+    /// This property is `true` if system tracking is enabled; otherwise the property is `false`. To change system tracking behavior, see ``DockAccessoryManager/setSystemTrackingEnabled(_:)``.
+    public var isSystemTrackingEnabled: Bool { get }
+
+    /// Obtain a reference to a dock accessory and receive notifications about its state.
+    ///
+    /// A docking or undocking notification occurs when a person docks or removes a device such as iPhone from a compatible dock accessory. The notification is a prequisite for modifying the tracking behavior of a dock accessory. For more information on controlling a dock accessory, see ``DockAccessory``.
+    ///
+    /// The following code demonstrates how to iterate through the accessory state changes to obtain the dock accessory.
+    ///
+    ///  ```
+    ///  do {
+    ///     for await accessory in try DockAccessoryManager.shared.accessoryStateChanges {
+    ///         // If this is an accessory you’re interested in, save it for later use.
+    ///     }
+    ///  } catch {
+    ///     log(“Failed fetching state changes, \(error)“)
+    ///  }
+    ///  ```
+    ///
+    /// - Returns: A value that indicates the dock accessory that changed and its new state.
+    /// - Throws: ``DockKitError/notSupported`` if called on macOS.
+    public var accessoryStateChanges: DockAccessory.StateChanges { get throws }
+
+    /// The accessory manager singleton object.
+    ///
+    /// Use this property to obtain an instance of ``DockAccessoryManager``.
+    public static let shared: DockAccessoryManager
+
+    /// Enable and disable system tracking for camera-enabled apps.
+    ///
+    /// DockKit enables system tracking by default, and any camera stream automatically
+    /// generates and sends tracking events when a device docks to a compatible dock accessory.
+    ///
+    ///  Always set this value to `false` before performing your own custom tracking.
+    /// - Throws: ``DockKitError/notSupported`` if called on macOS.
+    public func setSystemTrackingEnabled(_ isEnabled: Bool) async throws
+}
+
+/// A list of errors that DockKit sends.
+@available(iOS 17, macOS 14, *)
+public enum DockKitError : Error {
+
+    /// The method isn't supported on a specific platform.
+    case notSupported
+
+    /// The dock accessory isn't connected to a device.
+    case notConnected
+
+    /// The device doesn't support the requested operation.
+    case notSupportedByDevice
+
+    /// The supplied parameter is invalid.
+    case invalidParameter
+
+    /// There is no subject in the video frame.
+    case noSubjectFound
+
+    /// The frame rate is too low to track an object.
+    case frameRateTooLow
+
+    /// The camera terms and conditions are missing.
+    ///
+    /// In order for DockKit to access the camera, a person must accept the terms and conditions. If you receive this error, show an alert indicating that terms and conditions are necessary.
+    case cameraTCCMissing
+
+    /// The call rate for the method is too frequent.
+    ///
+    /// Reduce the number of times per second you call the method.
+    case frameRateTooHigh
+
+    /// Returns a Boolean value indicating whether two values are equal.
+    ///
+    /// Equality is the inverse of inequality. For any values `a` and `b`,
+    /// `a == b` implies that `a != b` is `false`.
+    ///
+    /// - Parameters:
+    ///   - lhs: A value to compare.
+    ///   - rhs: Another value to compare.
+    public static func == (a: DockKitError, b: DockKitError) -> Bool
+
+    /// Hashes the essential components of this value by feeding them into the
+    /// given hasher.
+    ///
+    /// Implement this method to conform to the `Hashable` protocol. The
+    /// components used for hashing must be the same as the components compared
+    /// in your type's `==` operator implementation. Call `hasher.combine(_:)`
+    /// with each of these components.
+    ///
+    /// - Important: In your implementation of `hash(into:)`,
+    ///   don't call `finalize()` on the `hasher` instance provided,
+    ///   or replace it with a different instance.
+    ///   Doing so may become a compile-time error in the future.
+    ///
+    /// - Parameter hasher: The hasher to use when combining the components
+    ///   of this instance.
+    public func hash(into hasher: inout Hasher)
+
+    /// The hash value.
+    ///
+    /// Hash values are not guaranteed to be equal across different executions of
+    /// your program. Do not save hash values to use during a future execution.
+    ///
+    /// - Important: `hashValue` is deprecated as a `Hashable` requirement. To
+    ///   conform to `Hashable`, implement the `hash(into:)` requirement instead.
+    ///   The compiler provides an implementation for `hashValue` for you.
+    public var hashValue: Int { get }
+}
+
+@available(iOS 17, macOS 14, *)
+extension DockKitError : Equatable {
+}
+
+@available(iOS 17, macOS 14, *)
+extension DockKitError : Hashable {
+}
