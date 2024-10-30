@@ -205,11 +205,39 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                let functionCall = item["function_call"] as? [String: Any] {
                 handleFunctionCall(functionCall)
             }
+        case "input_audio_buffer.speech_started":
+            handleSpeechStarted()
         default:
             print("Received message of type: \(type)")
         }
     }
 
+    private func handleSpeechStarted() {
+        print("Speech Start detected")
+        
+        // Clear playback buffers
+        audioManager?.clearPlaybackBuffers()
+        
+        // Send interrupt message to OpenAI
+        let interruptMessage: [String: Any] = [
+            "type": "response.cancel"
+        ]
+        
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: interruptMessage),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            print("Failed to create interrupt message")
+            return
+        }
+        
+        let message = URLSessionWebSocketTask.Message.string(jsonString)
+        websocket?.send(message) { error in
+            if let error = error {
+                print("Failed to send interrupt message: \(error)")
+            } else {
+                print("Cancelling AI speech from the server.")
+            }
+        }
+    }
     private func handleLookFunction(_ args: [String: Any]) {
         guard let camera = args["camera"] as? String else {
             print("Invalid camera argument")

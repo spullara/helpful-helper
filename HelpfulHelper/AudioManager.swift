@@ -311,7 +311,21 @@ class AudioManager {
         @unknown default: return "Unknown"
         }
     }
-    
+
+    func clearPlaybackBuffers() {
+        playerNode.stop()
+        playerNode.reset()
+        print("Playback buffers cleared")
+        
+        // Restart the playerNode
+        if engine.isRunning {
+            playerNode.play()
+            print("PlayerNode restarted")
+        } else {
+            print("Engine is not running, playerNode not restarted")
+        }
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
         logActivity("Audio Manager deinitialized")
