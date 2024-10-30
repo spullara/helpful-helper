@@ -7,6 +7,8 @@
 
 import AVFoundation
 import DockKit
+import CoreImage
+import UIKit
 
 // MARK: - Camera Session Coordinator
 class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate, ObservableObject {
@@ -34,72 +36,26 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         let session = AVCaptureMultiCamSession()
         session.beginConfiguration()
         
-        // Setup front camera with face detection first
-        guard let frontCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
-              let frontInput = try? AVCaptureDeviceInput(device: frontCamera) else {
-            print("Failed to setup front camera")
-            return
-        }
-        
-        if session.canAddInput(frontInput) {
+        // Setup front camera
+        if let frontCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
+           let frontInput = try? AVCaptureDeviceInput(device: frontCamera),
+           session.canAddInput(frontInput) {
             session.addInput(frontInput)
-            
-            // Setup metadata output for face detection
-            let metadata = AVCaptureMetadataOutput()
-            if session.canAddOutput(metadata) {
-                session.addOutput(metadata)
-                
-                // Important: Set the metadata output connection and orientation
-                if let connection = metadata.connection(with: .metadata) {
-                    connection.isEnabled = true
-                    frontCameraConnection = connection
-                }
-                
-                metadata.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
-                
-                // Set metadata object types after adding the output to the session
-                if metadata.availableMetadataObjectTypes.contains(.face) {
-                    metadata.metadataObjectTypes = [.face]
-                }
-                
-                self.metadataOutput = metadata
-            }
-            
-            // Setup front camera preview
-            let frontOutput = AVCaptureVideoDataOutput()
-            if session.canAddOutput(frontOutput) {
-                session.addOutput(frontOutput)
-                
-                let frontLayer = AVCaptureVideoPreviewLayer(sessionWithNoConnection: session)
-                frontLayer.videoGravity = .resizeAspectFill
-                
-                let frontConnection = AVCaptureConnection(inputPort: frontInput.ports[0], videoPreviewLayer: frontLayer)
-                session.addConnection(frontConnection)
-                self.frontPreviewLayer = frontLayer
-            }
+            setupCameraPreview(for: .front, input: frontInput, in: session)
+            print("Front camera setup successful")
+        } else {
+            print("Failed to setup front camera")
         }
         
         // Setup back camera
-        guard let backCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-              let backInput = try? AVCaptureDeviceInput(device: backCamera) else {
-            print("Failed to setup back camera")
-            return
-        }
-        
-        if session.canAddInput(backInput) {
+        if let backCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+           let backInput = try? AVCaptureDeviceInput(device: backCamera),
+           session.canAddInput(backInput) {
             session.addInput(backInput)
-            
-            let backOutput = AVCaptureVideoDataOutput()
-            if session.canAddOutput(backOutput) {
-                session.addOutput(backOutput)
-                
-                let backLayer = AVCaptureVideoPreviewLayer(sessionWithNoConnection: session)
-                backLayer.videoGravity = .resizeAspectFill
-                
-                let backConnection = AVCaptureConnection(inputPort: backInput.ports[0], videoPreviewLayer: backLayer)
-                session.addConnection(backConnection)
-                self.backPreviewLayer = backLayer
-            }
+            setupCameraPreview(for: .back, input: backInput, in: session)
+            print("Back camera setup successful")
+        } else {
+            print("Failed to setup back camera")
         }
         
         session.commitConfiguration()
@@ -113,6 +69,37 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         print("Camera session setup completed")
     }
     
+    private func setupCameraPreview(for position: AVCaptureDevice.Position, input: AVCaptureDeviceInput, in session: AVCaptureMultiCamSession) {
+        let output = AVCaptureVideoDataOutput()
+        guard session.canAddOutput(output) else {
+            print("Cannot add video data output for \(position) camera")
+            return
+        }
+        session.addOutput(output)
+        
+        let layer = AVCaptureVideoPreviewLayer(sessionWithNoConnection: session)
+        layer.videoGravity = .resizeAspectFill
+        
+        guard let port = input.ports.first(where: { $0.mediaType == .video }) else {
+            print("No video port found for \(position) camera")
+            return
+        }
+        
+        let connection = AVCaptureConnection(inputPort: port, videoPreviewLayer: layer)
+        guard session.canAddConnection(connection) else {
+            print("Cannot add connection for \(position) camera")
+            return
+        }
+        session.addConnection(connection)
+        
+        if position == .front {
+            self.frontPreviewLayer = layer
+        } else {
+            self.backPreviewLayer = layer
+        }
+        
+        print("Preview setup completed for \(position) camera")
+    }
     private func monitorDockAccessories() {
         Task {
             do {
@@ -189,76 +176,5 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
     func getSession() -> AVCaptureMultiCamSession? {
         return multiCamSession
     }
-
-    func captureImage(from camera: String) async throws -> Data {
-        guard let session = multiCamSession else {
-            throw NSError(domain: "CameraError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Camera session not available"])
-        }
-
-        let output = AVCapturePhotoOutput()
-        if session.canAddOutput(output) {
-            session.addOutput(output)
-        } else {
-            throw NSError(domain: "CameraError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Unable to add photo output"])
-        }
-
-        // Select the appropriate camera input
-        let cameraPosition: AVCaptureDevice.Position = (camera == "front") ? .front : .back
-        guard let cameraDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: cameraPosition),
-              let cameraInput = try? AVCaptureDeviceInput(device: cameraDevice),
-              session.canAddInput(cameraInput) else {
-            throw NSError(domain: "CameraError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Unable to setup camera input"])
-        }
-
-        session.addInput(cameraInput)
-
-        // Create settings for JPEG capture
-        let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
-
-        return try await withCheckedThrowingContinuation { continuation in
-            let delegate = PhotoCaptureDelegate { result in
-                switch result {
-                case .success(let imageData):
-                    continuation.resume(returning: imageData)
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
-            }
-            
-            print("Starting photo capture...")
-            output.capturePhoto(with: settings, delegate: delegate)
-            
-            // Increase timeout to 10 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
-                print("Photo capture timed out")
-                continuation.resume(throwing: NSError(domain: "CameraError", code: 4, userInfo: [NSLocalizedDescriptionKey: "Capture timeout"]))
-            }
-        }
-    }
-}
-
-class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
-    private let completionHandler: (Result<Data, Error>) -> Void
     
-    init(completionHandler: @escaping (Result<Data, Error>) -> Void) {
-        self.completionHandler = completionHandler
-    }
-    
-    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        print("Photo capture finished processing")
-        if let error = error {
-            print("Photo capture error: \(error)")
-            completionHandler(.failure(error))
-            return
-        }
-        
-        guard let imageData = photo.fileDataRepresentation() else {
-            print("Unable to get image data")
-            completionHandler(.failure(NSError(domain: "CameraError", code: 3, userInfo: [NSLocalizedDescriptionKey: "Unable to get image data"])))
-            return
-        }
-        
-        print("Photo captured successfully, data size: \(imageData.count) bytes")
-        completionHandler(.success(imageData))
-    }
 }
