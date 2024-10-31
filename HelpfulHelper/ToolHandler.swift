@@ -43,13 +43,24 @@ class ToolHandler {
     }
     
     func handleFunctionCall(name: String, callId: String, arguments: String) async throws -> [String: Any] {
-        guard name == "observe",
-              let argsData = arguments.data(using: .utf8),
-              let argsJson = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any],
-              let camera = argsJson["camera"] as? String,
-              let query = argsJson["query"] as? String
-        else {
+        guard let argsData = arguments.data(using: .utf8),
+              let argsJson = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] else {
             throw ToolHandlerError.invalidFunctionCall
+        }
+        
+        switch name {
+        case "observe":
+            return try await handleObserve(callId: callId, arguments: argsJson)
+        // Add more cases here for future tools
+        default:
+            throw ToolHandlerError.unknownFunction
+        }
+    }
+    
+    private func handleObserve(callId: String, arguments: [String: Any]) async throws -> [String: Any] {
+        guard let camera = arguments["camera"] as? String,
+              let query = arguments["query"] as? String else {
+            throw ToolHandlerError.invalidArguments
         }
 
         let imageData = try await cameraCoordinator.captureImage(from: camera)
@@ -112,6 +123,8 @@ class ToolHandler {
 
 enum ToolHandlerError: Error {
     case invalidFunctionCall
+    case unknownFunction
+    case invalidArguments
 }
 
 struct AnthropicResponse: Codable {
