@@ -116,8 +116,18 @@ class ToolHandler {
         request.httpBody = jsonData
         
         let (data, _) = try await URLSession.shared.data(for: request)
-        let response = try JSONDecoder().decode(AnthropicResponse.self, from: data)
-        return response.content.first?.text ?? "No response"
+        
+        guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            throw ToolHandlerError.invalidResponse
+        }
+        
+        guard let content = json["content"] as? [[String: Any]],
+              let firstContent = content.first,
+              let text = firstContent["text"] as? String else {
+            throw ToolHandlerError.missingContent
+        }
+        
+        return text
     }
 }
 
@@ -125,37 +135,7 @@ enum ToolHandlerError: Error {
     case invalidFunctionCall
     case unknownFunction
     case invalidArguments
+    case invalidResponse
+    case missingContent
 }
 
-struct AnthropicResponse: Codable {
-    let id: String
-    let type: String
-    let role: String
-    let model: String
-    let content: [Content]
-    let stopReason: String
-    let stopSequence: String?
-    let usage: Usage
-
-    enum CodingKeys: String, CodingKey {
-        case id, type, role, model, content
-        case stopReason = "stop_reason"
-        case stopSequence = "stop_sequence"
-        case usage
-    }
-}
-
-struct Content: Codable {
-    let type: String
-    let text: String
-}
-
-struct Usage: Codable {
-    let inputTokens: Int
-    let outputTokens: Int
-
-    enum CodingKeys: String, CodingKey {
-        case inputTokens = "input_tokens"
-        case outputTokens = "output_tokens"
-    }
-}
