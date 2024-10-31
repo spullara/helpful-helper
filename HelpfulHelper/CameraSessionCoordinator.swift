@@ -132,7 +132,7 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         self.metadataOutput = metadataOutput
         print("Metadata output setup completed")
     }
-    
+
     private func monitorDockAccessories() {
         Task {
             do {
@@ -147,6 +147,7 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
                         
                         // Set framing mode to center when accessory connects
                         try await accessory.setFramingMode(.center)
+                        
                     } else {
                         self.currentDockAccessory = nil
                         print("Dock accessory disconnected")
@@ -190,6 +191,24 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
                 if lastFaces != metadataObjects.count {
                     print("Tracked faces: \(metadataObjects.count)")
                     lastFaces = metadataObjects.count
+                }
+                
+                // Get the tracking state
+                for try await trackingState in try accessory.trackingStates {
+                    for subject in trackingState.trackedSubjects {
+                        if case .person(let trackedPerson) = subject {
+                            if let speakingConfidence = trackedPerson.speakingConfidence {
+                                print("****************")
+                                print("identifier: \(trackedPerson.identifier)")
+                                print("saliencyRank: \(trackedPerson.speakingConfidence)")
+                                print("lookingAtCameraConfidence: \(trackedPerson.lookingAtCameraConfidence)")
+                                print("speakingConfidence: \(trackedPerson.speakingConfidence)")
+                                print("rect: \(trackedPerson.rect)")
+                                print("****************")
+                            }
+                        }
+                    }
+                    break  // We only need the first state, so we break after processing it
                 }
             } catch {
                 print("Error tracking faces: \(error)")
