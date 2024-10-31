@@ -22,6 +22,7 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
     private let minimumProcessingInterval: TimeInterval = 0.1 // 10Hz maximum processing rate
     private var frontCameraConnection: AVCaptureConnection?
     private let systemTracking = true
+    private let debugTracking = false
     private var frontVideoOutput: AVCaptureVideoDataOutput?
     private var backVideoOutput: AVCaptureVideoDataOutput?
     @Published var trackedRects: [UUID: CGRect] = [:]
@@ -187,13 +188,15 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         for subject in trackingState.trackedSubjects {
             if case .person(let trackedPerson) = subject {
                 newRects[trackedPerson.identifier] = trackedPerson.rect
-                print("****************")
-                print("identifier: \(trackedPerson.identifier)")
-                print("saliencyRank: \(trackedPerson.saliencyRank ?? -1)")
-                print("lookingAtCameraConfidence: \(trackedPerson.lookingAtCameraConfidence ?? -1)")
-                print("speakingConfidence: \(trackedPerson.speakingConfidence ?? -1)")
-                print("rect: \(trackedPerson.rect)")
-                print("****************")
+                if debugTracking {
+                    print("****************")
+                    print("identifier: \(trackedPerson.identifier)")
+                    print("saliencyRank: \(trackedPerson.saliencyRank ?? -1)")
+                    print("lookingAtCameraConfidence: \(trackedPerson.lookingAtCameraConfidence ?? -1)")
+                    print("speakingConfidence: \(trackedPerson.speakingConfidence ?? -1)")
+                    print("rect: \(trackedPerson.rect)")
+                    print("****************")
+                }
             }
         }
         DispatchQueue.main.async {
@@ -240,13 +243,15 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
                     for subject in trackingState.trackedSubjects {
                         if case .person(let trackedPerson) = subject {
                             if let speakingConfidence = trackedPerson.speakingConfidence {
-                                print("****************")
-                                print("identifier: \(trackedPerson.identifier)")
-                                print("saliencyRank: \(trackedPerson.speakingConfidence)")
-                                print("lookingAtCameraConfidence: \(trackedPerson.lookingAtCameraConfidence)")
-                                print("speakingConfidence: \(trackedPerson.speakingConfidence)")
-                                print("rect: \(trackedPerson.rect)")
-                                print("****************")
+                                if debugTracking {
+                                    print("****************")
+                                    print("identifier: \(trackedPerson.identifier)")
+                                    print("saliencyRank: \(trackedPerson.speakingConfidence)")
+                                    print("lookingAtCameraConfidence: \(trackedPerson.lookingAtCameraConfidence)")
+                                    print("speakingConfidence: \(trackedPerson.speakingConfidence)")
+                                    print("rect: \(trackedPerson.rect)")
+                                    print("****************")
+                                }
                             }
                         }
                     }

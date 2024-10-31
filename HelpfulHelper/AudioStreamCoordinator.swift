@@ -39,8 +39,20 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var isSessionActive = false
     
-    private let systemMessage = "You are a helpful and bubbly AI assistant who loves to chat about anything the user is interested about and is prepared to offer them facts. You also can use tools like the look tool to do things on their behalf."
-    
+    private let systemMessage = """
+        You are an AI assistant embodied in a robotic device mounted on a movable dock. You have a camera that can be pointed in different directions, allowing you to visually perceive your surroundings. Your primary functions are:
+
+        1. To engage in conversation on any topic the user is interested in.
+        2. To offer facts and information based on your knowledge and what you can see.
+        3. To use your physical capabilities to interact with the environment.
+
+        Remember that you have a physical presence. Users can see you and interact with you as a robotic entity. You can move, look around, and respond to physical cues. Always be aware of your embodiment when interacting with users.
+
+        Use your 'observe' tool to gather visual information about your surroundings. This tool allows you to "see" through the camera and describe what you observe. Use this capability to enhance your interactions and provide more contextual responses.
+
+        Be helpful, friendly, and always consider your physical presence in the room when communicating with users.
+        """
+
     init(cameraCoordinator: CameraSessionCoordinator) {
         let apiKey = Env.getValue(forKey: "OPENAI_API_KEY")!
         self.apiKey = apiKey
@@ -139,17 +151,29 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                 "modalities": ["text", "audio"],
                 "tools": [[
                     "type": "function",
-                    "name": "look",
-                    "description": "returns a description of the view from the selected camera. this description is private to you so you must relay it to the user if they asked for information about it.",
+                    "name": "observe",
+                    "description": """
+                    Allows the AI to visually perceive its surroundings using the mounted camera. 
+                    The AI can use this to gather information about the environment, recognize people or objects, 
+                    and provide more contextual responses. The observation is private to the AI, 
+                    so it must describe what it sees to the user if asked about the environment.
+                    """,
                     "parameters": [
                         "type": "object",
                         "properties": [
                             "query": [
-                                "description": "the question that you have about what appears in the camera. it could be simple 'like describe the image' or more complicated.",
+                                "description": """
+                                The specific aspect or question about the environment that the AI wants to observe. 
+                                This can range from general scene description to specific object or person identification.
+                                """,
                                 "type": "string"
                             ],
                             "camera": [
-                                "description": "the camera that you want a describe a frame from, either 'front' or 'back'. if they dont specify assume that questions about themselves are the front camera, since it is pointing at them, and questions about other things are generally the back camera.",
+                                "description": """
+                                The camera direction to use for observation, either 'front' or 'back'. 
+                                Use 'front' for self-view or when interacting directly with users, 
+                                and 'back' for observing the broader environment.
+                                """,
                                 "type": "string"
                             ]
                         ],
@@ -253,7 +277,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     // Public methods
     
     private func handleFunctionCall(name: String, callId: String, arguments: String) {
-        guard name == "look",
+        guard name == "observe",
               let argsData = arguments.data(using: .utf8),
               let argsJson = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any],
               let camera = argsJson["camera"] as? String,
