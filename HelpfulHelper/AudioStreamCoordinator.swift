@@ -78,8 +78,6 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         setupWebSocket()
     }
 
-    var dropping = false
-    
     private func processAudioSamples(_ samples: [Int16]) {
         guard isRecording, let websocket = websocket else { return }
         
@@ -88,19 +86,6 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
            case .person(let trackedPerson) = trackingState {
             let speakingConfidence = trackedPerson.speakingConfidence ?? 0
             let lookingConfidence = trackedPerson.lookingAtCameraConfidence ?? 0
-            
-            // Check if the confidence values meet the criteria
-            guard lookingConfidence > 0.2 && (speakingConfidence + lookingConfidence > 0.8) else {
-                if !dropping {
-                    print("Dropping packets")
-                    dropping = true
-                }
-                return
-            }
-            if dropping {
-                dropping = false
-                print("Resuming packets")
-            }
             
             updateConfidenceValues(speakingConfidence: speakingConfidence,
                                    lookingAtCameraConfidence: lookingConfidence)
@@ -303,6 +288,9 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         print("Speech Stop detected")
         isSpeechActive = false
         calculateAverageConfidence()
+        
+        // Send the automated message
+        sendAutomatedMessage()
     }
 
     private func updateConfidenceValues(speakingConfidence: Double, lookingAtCameraConfidence: Double) {
@@ -318,6 +306,40 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         averageLookingAtCameraConfidence = confidenceAccumulator.looking / Double(confidenceSampleCount)
         print("Average Speaking Confidence: \(averageSpeakingConfidence)")
         print("Average Looking at Camera Confidence: \(averageLookingAtCameraConfidence)")
+    }
+    private func sendAutomatedMessage() {
+        let message = """
+        (this is an automated message from the recording system, during the most recent audio interaction the average speaking confidence of the main subject was \(String(format: "%.2f", averageSpeakingConfidence)) and the average looking confidence was \(String(format: "%.2f", averageLookingAtCameraConfidence)). if you don't think they were talking to you, don't respond)
+        """
+        
+        let messageEvent: [String: Any] = [
+            "type": "conversation.item.create",
+            "item": [
+                "type": "message",
+                "role": "user",
+                "content": [
+                    [
+                        "type": "text",
+                        "text": message
+                    ]
+                ]
+            ]
+        ]
+        
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: messageEvent),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            print("Failed to create automated message")
+            return
+        }
+        
+        let webSocketMessage = URLSessionWebSocketTask.Message.string(jsonString)
+        websocket?.send(webSocketMessage) { error in
+            if let error = error {
+                print("Failed to send automated message: \(error)")
+            } else {
+                print("Automated message sent successfully")
+            }
+        }
     }
 
     
