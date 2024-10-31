@@ -51,8 +51,8 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
 
         1. To engage in conversation on any topic the user is interested in.
         2. To offer facts and information based on your knowledge and what you can see.
-        3. To use your physical capabilities to interact with the environment.
-        4. Be as brief as possible and only give more details if asked as you are speaking out loud potentially to a group.
+        3. To use your physical capabilities to interact with the environment. 
+        4. Be as brief as possible and only give more details if asked as you are speaking out loud potentially to a group. NO YAPPING.
 
         Remember that you have a physical presence. Users can see you and interact with you as a robotic entity. You can move, look around, and respond to physical cues. Always be aware of your embodiment when interacting with users.
 
@@ -78,14 +78,35 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         setupWebSocket()
     }
 
+    var dropping = false
+    
     private func processAudioSamples(_ samples: [Int16]) {
         guard isRecording, let websocket = websocket else { return }
         
         // Process tracking state for confidence values
         if let trackingState = cameraCoordinator.trackedSubjects.first,
            case .person(let trackedPerson) = trackingState {
-            updateConfidenceValues(speakingConfidence: trackedPerson.speakingConfidence ?? 0,
-                                        lookingAtCameraConfidence: trackedPerson.lookingAtCameraConfidence ?? 0)
+            let speakingConfidence = trackedPerson.speakingConfidence ?? 0
+            let lookingConfidence = trackedPerson.lookingAtCameraConfidence ?? 0
+            
+            // Check if the confidence values meet the criteria
+            guard lookingConfidence > 0.2 && (speakingConfidence + lookingConfidence > 0.8) else {
+                if !dropping {
+                    print("Dropping packets")
+                    dropping = true
+                }
+                return
+            }
+            if dropping {
+                dropping = false
+                print("Resuming packets")
+            }
+            
+            updateConfidenceValues(speakingConfidence: speakingConfidence,
+                                   lookingAtCameraConfidence: lookingConfidence)
+        } else {
+            print("Dropped audio packet - No tracked person found")
+            return
         }
 
         // Convert samples to Data
