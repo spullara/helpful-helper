@@ -247,6 +247,8 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
             handleSpeechStarted()
         case "input_audio_buffer.speech_stopped":
             handleSpeechStopped()
+        case "error":
+            print("Error: \(response)")
         default:
             if type.hasSuffix(".delta") || type.hasSuffix(".added") { return }
             print("Received message of type: \(type)")
@@ -309,7 +311,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     }
     private func sendAutomatedMessage() {
         let message = """
-        (this is an automated message from the recording system, during the most recent audio interaction the average speaking confidence of the main subject was \(String(format: "%.2f", averageSpeakingConfidence)) and the average looking confidence was \(String(format: "%.2f", averageLookingAtCameraConfidence)). if you don't think they were talking to you, don't respond)
+        (this is an automated message from the recording system, during the most recent audio interaction the average speaking confidence of the main subject was \(String(format: "%.2f", averageSpeakingConfidence)) and the average looking confidence was \(String(format: "%.2f", averageLookingAtCameraConfidence)). if you don't think they were talking to you, just say "Hmmm")
         """
         
         let messageEvent: [String: Any] = [
@@ -319,7 +321,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                 "role": "user",
                 "content": [
                     [
-                        "type": "text",
+                        "type": "input_text",
                         "text": message
                     ]
                 ]
