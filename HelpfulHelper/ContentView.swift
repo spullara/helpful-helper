@@ -42,7 +42,7 @@ struct ContentView: View {
                                     .aspectRatio(3/4, contentMode: .fit)
                                     .frame(width: geometry.size.width / 2 - 15)
                                     .cornerRadius(12)
-                                RectangleOverlayView(rects: sessionCoordinator.trackedRects)
+                                RectangleOverlayView(trackedSubjects: sessionCoordinator.trackedSubjects)
                                     .aspectRatio(3/4, contentMode: .fit)
                                     .frame(width: geometry.size.width / 2 - 15)
                             }
