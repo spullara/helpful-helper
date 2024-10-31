@@ -40,6 +40,11 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var isSessionActive = false
     private let toolHandler: ToolHandler
+    @Published var averageSpeakingConfidence: Double = 0
+    @Published var averageLookingAtCameraConfidence: Double = 0
+    private var confidenceAccumulator: (speaking: Double, looking: Double) = (0, 0)
+    private var confidenceSampleCount: Int = 0
+    private var isSpeechActive: Bool = false
 
     private let systemMessage = """
         You are an AI assistant embodied in a robotic device mounted on a movable dock. You have a camera that can be pointed in different directions, allowing you to visually perceive your surroundings. Your primary functions are:
@@ -47,6 +52,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         1. To engage in conversation on any topic the user is interested in.
         2. To offer facts and information based on your knowledge and what you can see.
         3. To use your physical capabilities to interact with the environment.
+        4. Be as brief as possible and only give more details if asked as you are speaking out loud potentially to a group.
 
         Remember that you have a physical presence. Users can see you and interact with you as a robotic entity. You can move, look around, and respond to physical cues. Always be aware of your embodiment when interacting with users.
 
@@ -75,6 +81,13 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     private func processAudioSamples(_ samples: [Int16]) {
         guard isRecording, let websocket = websocket else { return }
         
+        // Process tracking state for confidence values
+        if let trackingState = cameraCoordinator.trackedSubjects.first,
+           case .person(let trackedPerson) = trackingState {
+            updateConfidenceValues(speakingConfidence: trackedPerson.speakingConfidence ?? 0,
+                                        lookingAtCameraConfidence: trackedPerson.lookingAtCameraConfidence ?? 0)
+        }
+
         // Convert samples to Data
         let audioData = Data(bytes: samples, count: samples.count * 2) // 2 bytes per Int16
         
@@ -226,13 +239,19 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
             }
         case "input_audio_buffer.speech_started":
             handleSpeechStarted()
+        case "input_audio_buffer.speech_stopped":
+            handleSpeechStopped()
         default:
+            if type.hasSuffix(".delta") || type.hasSuffix(".added") { return }
             print("Received message of type: \(type)")
         }
     }
 
     private func handleSpeechStarted() {
         print("Speech Start detected")
+        isSpeechActive = true
+        confidenceAccumulator = (0, 0)
+        confidenceSampleCount = 0
         
         // Clear playback buffers
         audioManager?.clearPlaybackBuffers()
@@ -259,6 +278,27 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     }
 
     // Public methods
+    private func handleSpeechStopped() {
+        print("Speech Stop detected")
+        isSpeechActive = false
+        calculateAverageConfidence()
+    }
+
+    private func updateConfidenceValues(speakingConfidence: Double, lookingAtCameraConfidence: Double) {
+        guard isSpeechActive else { return }
+        confidenceAccumulator.speaking += speakingConfidence
+        confidenceAccumulator.looking += lookingAtCameraConfidence
+        confidenceSampleCount += 1
+    }
+
+    private func calculateAverageConfidence() {
+        guard confidenceSampleCount > 0 else { return }
+        averageSpeakingConfidence = confidenceAccumulator.speaking / Double(confidenceSampleCount)
+        averageLookingAtCameraConfidence = confidenceAccumulator.looking / Double(confidenceSampleCount)
+        print("Average Speaking Confidence: \(averageSpeakingConfidence)")
+        print("Average Looking at Camera Confidence: \(averageLookingAtCameraConfidence)")
+    }
+
     
     private func handleFunctionCall(name: String, callId: String, arguments: String) {
         Task {

@@ -90,8 +90,17 @@ struct ContentView: View {
                     .cornerRadius(12)
                 }
                 .padding()
+
+                VStack {
+                    Text("Avg Speaking Confidence: \(audioCoordinator.averageSpeakingConfidence, specifier: "%.2f")")
+                    Text("Avg Looking at Camera Confidence: \(audioCoordinator.averageLookingAtCameraConfidence, specifier: "%.2f")")
+                }
+                .padding()
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(12)
             }
             .padding()
+
         }
         .onReceive(audioCoordinator.$latestTranscript) { newTranscript in
             if !newTranscript.isEmpty {

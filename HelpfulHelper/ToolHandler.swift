@@ -9,37 +9,54 @@ class ToolHandler {
     }
     
     var toolDefinitions: [[String: Any]] {
-        return [[
-            "type": "function",
-            "name": "observe",
-            "description": """
-            Allows the AI to visually perceive its surroundings using the mounted camera. 
-            The AI can use this to gather information about the environment, recognize people or objects, 
-            and provide more contextual responses. The observation is private to the AI, 
-            so it must describe what it sees to the user if asked about the environment.
-            """,
-            "parameters": [
-                "type": "object",
-                "properties": [
-                    "query": [
-                        "description": """
-                        The specific aspect or question about the environment that the AI wants to observe. 
-                        This can range from general scene description to specific object or person identification.
-                        """,
-                        "type": "string"
+        return [
+            [
+                "type": "function",
+                "name": "observe",
+                "description": """
+                Allows the AI to visually perceive its surroundings using the mounted camera. 
+                The AI can use this to gather information about the environment, recognize people or objects, 
+                and provide more contextual responses. The observation is private to the AI, 
+                so it must describe what it sees to the user if asked about the environment.
+                """,
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "query": [
+                            "description": """
+                            The specific aspect or question about the environment that the AI wants to observe. 
+                            This can range from general scene description to specific object or person identification.
+                            """,
+                            "type": "string"
+                        ],
+                        "camera": [
+                            "description": """
+                            The camera direction to use for observation, either 'front' or 'back'. 
+                            Use 'front' for self-view or when interacting directly with users, 
+                            and 'back' for observing the broader environment.
+                            """,
+                            "type": "string"
+                        ]
                     ],
-                    "camera": [
-                        "description": """
-                        The camera direction to use for observation, either 'front' or 'back'. 
-                        Use 'front' for self-view or when interacting directly with users, 
-                        and 'back' for observing the broader environment.
-                        """,
-                        "type": "string"
-                    ]
-                ],
-                "required": ["query", "camera"]
+                    "required": ["query", "camera"]
+                ]
+            ],
+            [
+                "type": "function",
+                "name": "webSearch",
+                "description": "Performs a web search using the Bing Search API and returns the results.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "query": [
+                            "description": "The search query to be used.",
+                            "type": "string"
+                        ]
+                    ],
+                    "required": ["query"]
+                ]
             ]
-        ]]
+        ]
     }
     
     func handleFunctionCall(name: String, callId: String, arguments: String) async throws -> [String: Any] {
@@ -51,7 +68,8 @@ class ToolHandler {
         switch name {
         case "observe":
             return try await handleObserve(callId: callId, arguments: argsJson)
-        // Add more cases here for future tools
+        case "webSearch":
+            return try await handleWebSearch(callId: callId, arguments: argsJson)
         default:
             throw ToolHandlerError.unknownFunction
         }
@@ -130,6 +148,54 @@ class ToolHandler {
         return text
     }
 }
+    private func handleWebSearch(callId: String, arguments: [String: Any]) async throws -> [String: Any] {
+        guard let query = arguments["query"] as? String else {
+            throw ToolHandlerError.invalidArguments
+        }
+        
+        let searchResults = try await performWebSearch(query: query)
+        
+        return [
+            "type": "conversation.item.create",
+            "item": [
+                "type": "function_call_output",
+                "call_id": callId,
+                "output": searchResults
+            ]
+        ]
+    }
+    
+    private func performWebSearch(query: String) async throws -> String {
+        let apiKey = Env.getValue(forKey: "BING_API_KEY")!
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let urlString = "https://api.bing.microsoft.com/v7.0/search?q=\(encodedQuery)"
+        
+        guard let url = URL(string: urlString) else {
+            throw ToolHandlerError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue(apiKey, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        
+        guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let webPages = json["webPages"] as? [String: Any],
+              let value = webPages["value"] as? [[String: Any]] else {
+            throw ToolHandlerError.invalidResponse
+        }
+        
+        let results = value.map { result -> [String: String] in
+            return [
+                "name": result["name"] as? String ?? "",
+                "url": result["url"] as? String ?? "",
+                "date": result["datePublishedDisplayText"] as? String ?? "",
+                "snippet": result["snippet"] as? String ?? ""
+            ]
+        }
+        
+        return try JSONSerialization.data(withJSONObject: results).toString()
+    }
 
 enum ToolHandlerError: Error {
     case invalidFunctionCall
@@ -137,5 +203,14 @@ enum ToolHandlerError: Error {
     case invalidArguments
     case invalidResponse
     case missingContent
+    case invalidURL
 }
 
+extension Data {
+    func toString() throws -> String {
+        guard let str = String(data: self, encoding: .utf8) else {
+            throw ToolHandlerError.invalidResponse
+        }
+        return str
+    }
+}
