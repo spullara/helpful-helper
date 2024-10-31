@@ -20,7 +20,7 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
     private var lastProcessedTime: TimeInterval = 0
     private let minimumProcessingInterval: TimeInterval = 0.1 // 10Hz maximum processing rate
     private var frontCameraConnection: AVCaptureConnection?
-    
+    private let systemTracking = true
     private var frontVideoOutput: AVCaptureVideoDataOutput?
     private var backVideoOutput: AVCaptureVideoDataOutput?
     
@@ -45,7 +45,9 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
            session.canAddInput(frontInput) {
             session.addInput(frontInput)
             setupCameraPreview(for: .front, input: frontInput, in: session)
-            setupMetadataOutput(for: frontInput, in: session)
+            if !systemTracking {
+                setupMetadataOutput(for: frontInput, in: session)
+            }
             print("Front camera setup successful")
         } else {
             print("Failed to setup front camera")
@@ -107,6 +109,7 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         
         print("Preview setup completed for \(position) camera")
     }
+
     private func setupMetadataOutput(for input: AVCaptureDeviceInput, in session: AVCaptureMultiCamSession) {
         let metadataOutput = AVCaptureMetadataOutput()
         
@@ -137,8 +140,8 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         Task {
             do {
                 // Disable system tracking since we're doing manual tracking
-                try await DockAccessoryManager.shared.setSystemTrackingEnabled(false)
-                print("System tracking disabled")
+                try await DockAccessoryManager.shared.setSystemTrackingEnabled(systemTracking)
+                print("System tracking \(systemTracking ? "enabled" : "disabled")")
                 
                 for await stateChange in try DockAccessoryManager.shared.accessoryStateChanges {
                     if let accessory = stateChange.accessory, stateChange.state == .docked {
@@ -146,8 +149,13 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
                         print("Dock accessory connected: \(accessory.identifier)")
                         
                         // Set framing mode to center when accessory connects
-                        try await accessory.setFramingMode(.center)
+                        if !systemTracking {
+                            try await accessory.setFramingMode(.center)
+                        }
                         
+                        if systemTracking {
+                            subscribeToTrackingUpdates(accessory: accessory)
+                        }
                     } else {
                         self.currentDockAccessory = nil
                         print("Dock accessory disconnected")
@@ -159,6 +167,33 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         }
     }
     
+    private func subscribeToTrackingUpdates(accessory: DockAccessory) {
+        Task {
+            do {
+                for try await trackingState in try accessory.trackingStates {
+                    // Process the tracking state
+                    processTrackingState(trackingState)
+                }
+            } catch {
+                print("Error subscribing to tracking updates: \(error)")
+            }
+        }
+    }
+
+    private func processTrackingState(_ trackingState: DockAccessory.TrackingState) {
+        for subject in trackingState.trackedSubjects {
+            if case .person(let trackedPerson) = subject {
+                print("****************")
+                print("identifier: \(trackedPerson.identifier)")
+                print("saliencyRank: \(trackedPerson.saliencyRank)")
+                print("lookingAtCameraConfidence: \(trackedPerson.lookingAtCameraConfidence)")
+                print("speakingConfidence: \(trackedPerson.speakingConfidence)")
+                print("rect: \(trackedPerson.rect)")
+                print("****************")
+            }
+        }
+    }
+
     var lastFaces = -1
     
     // MARK: - AVCaptureMetadataOutputObjectsDelegate
