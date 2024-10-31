@@ -7,6 +7,7 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var isSessionActive = false
+    @State private var transcripts: [String] = []
     
     @StateObject private var sessionCoordinator: CameraSessionCoordinator
     @StateObject private var audioCoordinator: AudioStreamCoordinator
@@ -71,8 +72,34 @@ struct ContentView: View {
                         }
                     }
                 }
+                
+                // Transcription Log
+                VStack {
+                    Text("Transcription Log")
+                        .font(.headline)
+                    ScrollView {
+                        LazyVStack(alignment: .leading) {
+                            ForEach(transcripts, id: \.self) { transcript in
+                                Text(transcript)
+                                    .padding(.vertical, 2)
+                            }
+                        }
+                    }
+                    .frame(height: 150)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(12)
+                }
+                .padding()
             }
             .padding()
+        }
+        .onReceive(audioCoordinator.$latestTranscript) { newTranscript in
+            if !newTranscript.isEmpty {
+                transcripts.append(newTranscript)
+                if transcripts.count > 10 {
+                    transcripts.removeFirst()
+                }
+            }
         }
     }
 

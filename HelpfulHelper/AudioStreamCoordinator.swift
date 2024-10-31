@@ -31,6 +31,7 @@ struct Env {
 }
 
 class AudioStreamCoordinator: NSObject, ObservableObject {
+    @Published var latestTranscript: String = ""
     private var audioManager: AudioManager?
     private var cameraCoordinator: CameraSessionCoordinator
     private var websocket: URLSessionWebSocketTask?
@@ -239,6 +240,17 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                let callId = item["call_id"] as? String,
                let arguments = item["arguments"] as? String {
                 handleFunctionCall(name: name, callId: callId, arguments: arguments)
+            }
+            if let item = response["item"] as? [String: Any],
+            let content = item["content"] as? [[String: Any]],
+            let itemType = item["type"] as? String,
+            itemType == "message",
+            let firstContent = content.first,
+            let transcript = firstContent["transcript"] as? String {
+                print("Updated transcript: \(transcript)")
+                DispatchQueue.main.async {
+                    self.latestTranscript = transcript
+                }
             }
         case "input_audio_buffer.speech_started":
             handleSpeechStarted()
