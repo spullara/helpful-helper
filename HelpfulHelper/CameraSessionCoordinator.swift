@@ -45,6 +45,7 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
            session.canAddInput(frontInput) {
             session.addInput(frontInput)
             setupCameraPreview(for: .front, input: frontInput, in: session)
+            setupMetadataOutput(for: frontInput, in: session)
             print("Front camera setup successful")
         } else {
             print("Failed to setup front camera")
@@ -106,6 +107,32 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         
         print("Preview setup completed for \(position) camera")
     }
+    private func setupMetadataOutput(for input: AVCaptureDeviceInput, in session: AVCaptureMultiCamSession) {
+        let metadataOutput = AVCaptureMetadataOutput()
+        
+        guard session.canAddOutput(metadataOutput) else {
+            print("Cannot add metadata output")
+            return
+        }
+        
+        session.addOutput(metadataOutput)
+        
+        // Configure metadata output
+        metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+        
+        if metadataOutput.availableMetadataObjectTypes.contains(.face) {
+            metadataOutput.metadataObjectTypes = [.face]
+        }
+        
+        // Ensure the connection is set up correctly
+        if let connection = metadataOutput.connection(with: .metadata) {
+            connection.isEnabled = true
+        }
+        
+        self.metadataOutput = metadataOutput
+        print("Metadata output setup completed")
+    }
+    
     private func monitorDockAccessories() {
         Task {
             do {
@@ -131,7 +158,7 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         }
     }
     
-    var lastFaces = 0
+    var lastFaces = -1
     
     // MARK: - AVCaptureMetadataOutputObjectsDelegate
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
