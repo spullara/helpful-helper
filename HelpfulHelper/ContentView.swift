@@ -21,76 +21,83 @@ struct ContentView: View {
     }
     
     var body: some View {
-        VStack {
-            HStack {
-                Button(action: toggleSession) {
-                    Text(isSessionActive ? "Sleep" : "Wake")
+        GeometryReader { geometry in
+            VStack {
+                HStack {
+                    Button(action: toggleSession) {
+                        Text(isSessionActive ? "Sleep" : "Wake")
+                            .font(.headline)
+                            .padding()
+                            .background(isSessionActive ? Color.red : Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                    
+                    Button(action: testAnthropic) {
+                        Text("Test Anthropic")
+                            .font(.headline)
+                            .padding()
+                            .background(isTestingAnthropic ? Color.gray : Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                    .disabled(isTestingAnthropic)
+                }
+                
+                if !anthropicResult.isEmpty {
+                    Text("Anthropic Result:")
                         .font(.headline)
+                    Text(anthropicResult)
                         .padding()
-                        .background(isSessionActive ? Color.red : Color.green)
-                        .foregroundColor(.white)
+                        .background(Color.gray.opacity(0.2))
                         .cornerRadius(10)
                 }
                 
-                Button(action: testAnthropic) {
-                    Text("Test Anthropic")
-                        .font(.headline)
-                        .padding()
-                        .background(isTestingAnthropic ? Color.gray : Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                }
-                .disabled(isTestingAnthropic)
-            }
-            
-            if !anthropicResult.isEmpty {
-                Text("Anthropic Result:")
-                    .font(.headline)
-                Text(anthropicResult)
-                    .padding()
-                    .background(Color.gray.opacity(0.2))
-                    .cornerRadius(10)
-            }
-            
-            // Front camera preview
-            VStack {
-                Text("Front Camera (Face Detection)")
-                    .font(.caption)
-                if let session = sessionCoordinator.getSession(),
-                   let layer = sessionCoordinator.getFrontPreviewLayer() {
-                    ZStack {
-                        CameraPreviewView(session: session, videoLayer: layer)
-                            .frame(height: 300)
-                            .cornerRadius(12)
-                        RectangleOverlayView(rects: sessionCoordinator.trackedRects)
-                            .frame(height: 300)
+                HStack(spacing: 10) {
+                    // Front camera preview
+                    VStack {
+                        Text("Front Camera (Face Detection)")
+                            .font(.caption)
+                        if let session = sessionCoordinator.getSession(),
+                           let layer = sessionCoordinator.getFrontPreviewLayer() {
+                            ZStack {
+                                CameraPreviewView(session: session, videoLayer: layer)
+                                    .aspectRatio(3/4, contentMode: .fit)
+                                    .frame(width: geometry.size.width / 2 - 15)
+                                    .cornerRadius(12)
+                                RectangleOverlayView(rects: sessionCoordinator.trackedRects)
+                                    .aspectRatio(3/4, contentMode: .fit)
+                                    .frame(width: geometry.size.width / 2 - 15)
+                            }
+                        } else {
+                            Text("Front camera unavailable")
+                                .frame(width: geometry.size.width / 2 - 15, height: (geometry.size.width / 2 - 15) * 4/3)
+                                .background(Color.gray.opacity(0.3))
+                                .cornerRadius(12)
+                        }
                     }
-                } else {
-                    Text("Front camera unavailable")
-                        .frame(height: 300)
-                        .background(Color.gray.opacity(0.3))
-                        .cornerRadius(12)
-                }
-            }
 
-            // Back camera preview
-            VStack {
-                Text("Back Camera")
-                    .font(.caption)
-                if let session = sessionCoordinator.getSession(),
-                   let layer = sessionCoordinator.getBackPreviewLayer() {
-                    CameraPreviewView(session: session, videoLayer: layer)
-                        .frame(height: 300)
-                        .cornerRadius(12)
-                } else {
-                    Text("Back camera unavailable")
-                        .frame(height: 300)
-                        .background(Color.gray.opacity(0.3))
-                        .cornerRadius(12)
+                    // Back camera preview
+                    VStack {
+                        Text("Back Camera")
+                            .font(.caption)
+                        if let session = sessionCoordinator.getSession(),
+                           let layer = sessionCoordinator.getBackPreviewLayer() {
+                            CameraPreviewView(session: session, videoLayer: layer)
+                                .aspectRatio(3/4, contentMode: .fit)
+                                .frame(width: geometry.size.width / 2 - 15)
+                                .cornerRadius(12)
+                        } else {
+                            Text("Back camera unavailable")
+                                .frame(width: geometry.size.width / 2 - 15, height: (geometry.size.width / 2 - 15) * 4/3)
+                                .background(Color.gray.opacity(0.3))
+                                .cornerRadius(12)
+                        }
+                    }
                 }
             }
+            .padding()
         }
-        .padding()
     }
 
     private func toggleSession() {
