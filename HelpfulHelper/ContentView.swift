@@ -58,9 +58,13 @@ struct ContentView: View {
                     .font(.caption)
                 if let session = sessionCoordinator.getSession(),
                    let layer = sessionCoordinator.getFrontPreviewLayer() {
-                    CameraPreviewView(session: session, videoLayer: layer)
-                        .frame(height: 300)
-                        .cornerRadius(12)
+                    ZStack {
+                        CameraPreviewView(session: session, videoLayer: layer)
+                            .frame(height: 300)
+                            .cornerRadius(12)
+                        RectangleOverlayView(rects: sessionCoordinator.trackedRects)
+                            .frame(height: 300)
+                    }
                 } else {
                     Text("Front camera unavailable")
                         .frame(height: 300)
