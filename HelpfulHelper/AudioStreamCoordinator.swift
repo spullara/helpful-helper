@@ -39,7 +39,8 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     private var apiKey: String
     @Published var isRecording = false
     @Published var isSessionActive = false
-    
+    private let toolHandler: ToolHandler
+
     private let systemMessage = """
         You are an AI assistant embodied in a robotic device mounted on a movable dock. You have a camera that can be pointed in different directions, allowing you to visually perceive your surroundings. Your primary functions are:
 
@@ -59,9 +60,10 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         self.apiKey = apiKey
         self.session = URLSession(configuration: .default)
         self.cameraCoordinator = cameraCoordinator
-        
+        self.toolHandler = ToolHandler(cameraCoordinator: cameraCoordinator)
+
         super.init()
-        
+
         // Initialize audio manager after super.init
         self.audioManager = AudioManager { [weak self] samples in
             self?.processAudioSamples(samples)
@@ -150,37 +152,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                 "voice": "shimmer",
                 "instructions": systemMessage,
                 "modalities": ["text", "audio"],
-                "tools": [[
-                    "type": "function",
-                    "name": "observe",
-                    "description": """
-                    Allows the AI to visually perceive its surroundings using the mounted camera. 
-                    The AI can use this to gather information about the environment, recognize people or objects, 
-                    and provide more contextual responses. The observation is private to the AI, 
-                    so it must describe what it sees to the user if asked about the environment.
-                    """,
-                    "parameters": [
-                        "type": "object",
-                        "properties": [
-                            "query": [
-                                "description": """
-                                The specific aspect or question about the environment that the AI wants to observe. 
-                                This can range from general scene description to specific object or person identification.
-                                """,
-                                "type": "string"
-                            ],
-                            "camera": [
-                                "description": """
-                                The camera direction to use for observation, either 'front' or 'back'. 
-                                Use 'front' for self-view or when interacting directly with users, 
-                                and 'back' for observing the broader environment.
-                                """,
-                                "type": "string"
-                            ]
-                        ],
-                        "required": ["query", "camera"]
-                    ]
-                ]]
+                "tools": toolHandler.toolDefinitions
             ]
         ]
 
@@ -220,7 +192,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         guard let data = text.data(using: .utf8),
               let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = response["type"] as? String else { return }
-        
+
         switch type {
         case "response.audio.delta":
             if let delta = response["delta"] as? String,
@@ -289,29 +261,9 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     // Public methods
     
     private func handleFunctionCall(name: String, callId: String, arguments: String) {
-        guard name == "observe",
-              let argsData = arguments.data(using: .utf8),
-              let argsJson = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any],
-              let camera = argsJson["camera"] as? String,
-              let query = argsJson["query"] as? String
-        else {
-            print("Invalid function call format or unsupported function")
-            return
-        }
-
         Task {
             do {
-                let imageData = try await cameraCoordinator.captureImage(from: camera)
-                let imageDescription = try await callAnthropicAPI(imageData: imageData, query: query)
-                
-                let functionResponse: [String: Any] = [
-                    "type": "conversation.item.create",
-                    "item": [
-                        "type": "function_call_output",
-                        "call_id": callId,
-                        "output": imageDescription
-                    ]
-                ]
+                let functionResponse = try await toolHandler.handleFunctionCall(name: name, callId: callId, arguments: arguments)
                 
                 guard let jsonData = try? JSONSerialization.data(withJSONObject: functionResponse),
                       let jsonString = String(data: jsonData, encoding: .utf8) else {
@@ -338,86 +290,8 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                     }
                 }
             } catch {
-                print("Error processing image: \(error)")
+                print("Error processing function call: \(error)")
             }
-        }
-    }
-
-    public func callAnthropicAPI(imageData: Data, query: String) async throws -> String {
-        let base64Image = imageData.base64EncodedString()
-        let mediaType = "image/jpeg" // Adjust this if your image format is different
-        
-        let apiKey = Env.getValue(forKey: "ANTHROPIC_API_KEY")!
-        let url = URL(string: "https://api.anthropic.com/v1/messages")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let payload: [String: Any] = [
-            "model": "claude-3-5-sonnet-latest",
-            "max_tokens": 1024,
-            "messages": [
-                [
-                    "role": "user",
-                    "content": [
-                        [
-                            "type": "image",
-                            "source": [
-                                "type": "base64",
-                                "media_type": mediaType,
-                                "data": base64Image
-                            ]
-                        ],
-                        [
-                            "type": "text",
-                            "text": query
-                        ]
-                    ]
-                ]
-            ]
-        ]
-        
-        let jsonData = try JSONSerialization.data(withJSONObject: payload)
-        request.httpBody = jsonData
-        
-        let (data, _) = try await URLSession.shared.data(for: request)
-        print(String(decoding: data, as: Unicode.UTF8.self))
-        let response = try JSONDecoder().decode(AnthropicResponse.self, from: data)
-        return response.content.first?.text ?? "No response"
-    }
-
-    struct AnthropicResponse: Codable {
-        let id: String
-        let type: String
-        let role: String
-        let model: String
-        let content: [Content]
-        let stopReason: String
-        let stopSequence: String?
-        let usage: Usage
-
-        enum CodingKeys: String, CodingKey {
-            case id, type, role, model, content
-            case stopReason = "stop_reason"
-            case stopSequence = "stop_sequence"
-            case usage
-        }
-    }
-
-    struct Content: Codable {
-        let type: String
-        let text: String
-    }
-
-    struct Usage: Codable {
-        let inputTokens: Int
-        let outputTokens: Int
-
-        enum CodingKeys: String, CodingKey {
-            case inputTokens = "input_tokens"
-            case outputTokens = "output_tokens"
         }
     }
 
