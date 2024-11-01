@@ -148,7 +148,54 @@ struct ContentView: View {
                 let imageData = try await sessionCoordinator.captureImage(from: "front")
                 if let image = UIImage(data: imageData) {
                     DispatchQueue.main.async {
-                        self.lastCapturedImage = image
+                        // Create a new image context with the same size as the captured image
+                        UIGraphicsBeginImageContextWithOptions(image.size, false, image.scale)
+                        
+                        // Draw the original image
+                        image.draw(at: .zero)
+                        
+                        // Get the current graphics context
+                        if let context = UIGraphicsGetCurrentContext() {
+                            // Draw rectangles for tracked subjects
+                            context.setStrokeColor(UIColor.red.cgColor)
+                            context.setLineWidth(10.0)
+                            
+                            for subject in sessionCoordinator.trackedSubjects {
+                                if case .person(let person) = subject {
+                                    // Calculate original rect in image coordinates
+                                    let originalRect = CGRect(
+                                        x: person.rect.origin.x * image.size.width,
+                                        y: person.rect.origin.y * image.size.height,
+                                        width: person.rect.size.width * image.size.width,
+                                        height: person.rect.size.height * image.size.height
+                                    )
+                                    
+                                    // Calculate the center point of the original rect
+                                    let centerX = originalRect.midX
+                                    let centerY = originalRect.midY
+                                    
+                                    // Create new rect 2x larger, centered on the same point
+                                    let newWidth = originalRect.width * 2
+                                    let newHeight = originalRect.height * 2
+                                    let newRect = CGRect(
+                                        x: centerX - (newWidth / 2),
+                                        y: centerY - (newHeight / 2),
+                                        width: newWidth,
+                                        height: newHeight
+                                    )
+                                    
+                                    context.stroke(newRect)
+                                }
+                            }
+                        }
+                        
+                        // Get the resulting image with rectangles
+                        if let newImage = UIGraphicsGetImageFromCurrentImageContext() {
+                            self.lastCapturedImage = newImage
+                        }
+                        
+                        // End the image context
+                        UIGraphicsEndImageContext()
                     }
                 }
             } catch {
