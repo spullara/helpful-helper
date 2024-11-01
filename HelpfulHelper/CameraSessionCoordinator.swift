@@ -194,65 +194,6 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         }
     }
     
-    var lastFaces = -1
-    
-    // MARK: - AVCaptureMetadataOutputObjectsDelegate
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        // Ensure we don't process frames too frequently
-        let currentTime = CACurrentMediaTime()
-        guard currentTime - lastProcessedTime >= minimumProcessingInterval else { return }
-        lastProcessedTime = currentTime
-        
-        guard let accessory = currentDockAccessory else {
-            return
-        }
-        
-        // Only process if we have face metadata objects
-        guard !metadataObjects.isEmpty else { return }
-        
-        Task {
-            do {
-                // Create camera information for tracking
-                let cameraInfo = DockAccessory.CameraInformation(
-                    captureDevice: .builtInWideAngleCamera,
-                    cameraPosition: .front,
-                    orientation: .portrait,
-                    cameraIntrinsics: nil,
-                    referenceDimensions: CGSize(width: 1920, height: 1080)
-                )
-                
-                // Track the faces
-                try await accessory.track(metadataObjects, cameraInformation: cameraInfo)
-                if lastFaces != metadataObjects.count {
-                    print("Tracked faces: \(metadataObjects.count)")
-                    lastFaces = metadataObjects.count
-                }
-                
-                // Get the tracking state
-                for try await trackingState in try accessory.trackingStates {
-                    for subject in trackingState.trackedSubjects {
-                        if case .person(let trackedPerson) = subject {
-                            if let speakingConfidence = trackedPerson.speakingConfidence {
-                                if debugTracking {
-                                    print("****************")
-                                    print("identifier: \(trackedPerson.identifier)")
-                                    print("saliencyRank: \(trackedPerson.speakingConfidence)")
-                                    print("lookingAtCameraConfidence: \(trackedPerson.lookingAtCameraConfidence)")
-                                    print("speakingConfidence: \(trackedPerson.speakingConfidence)")
-                                    print("rect: \(trackedPerson.rect)")
-                                    print("****************")
-                                }
-                            }
-                        }
-                    }
-                    break  // We only need the first state, so we break after processing it
-                }
-            } catch {
-                print("Error tracking faces: \(error)")
-            }
-        }
-    }
-    
     // Public accessors
     func getFrontPreviewLayer() -> AVCaptureVideoPreviewLayer? {
         return frontPreviewLayer

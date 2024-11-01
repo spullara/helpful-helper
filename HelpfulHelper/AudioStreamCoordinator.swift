@@ -85,19 +85,28 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
 
         setupWebSocket()
     }
+
     private func sendWebSocketMessage(_ payload: [String: Any], completion: ((Error?) -> Void)? = nil) {
-        guard let websocket = websocket,
-              let jsonData = try? JSONSerialization.data(withJSONObject: payload),
-              let jsonString = String(data: jsonData, encoding: .utf8) else {
-            completion?(NSError(domain: "WebSocketError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to serialize message"]))
+        guard let websocket = websocket else {
+            completion?(NSError(domain: "WebSocketError", code: -1, userInfo: [NSLocalizedDescriptionKey: "WebSocket not initialized"]))
             return
         }
         
-        let message = URLSessionWebSocketTask.Message.string(jsonString)
-        websocket.send(message) { error in
-            if let error = error {
-                print("Failed to send WebSocket message: \(error)")
+        do {
+            let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .withoutEscapingSlashes])
+            if let jsonString = String(data: data, encoding: .utf8) {
+                let message = URLSessionWebSocketTask.Message.string(jsonString)
+                websocket.send(message) { error in
+                    if let error = error {
+                        print("Failed to send WebSocket message: \(error)")
+                    }
+                    completion?(error)
+                }
+            } else {
+                throw NSError(domain: "WebSocketError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create JSON string"])
             }
+        } catch {
+            print("Failed to serialize message: \(error)")
             completion?(error)
         }
     }
@@ -177,7 +186,12 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         let config: [String: Any] = [
             "type": "session.update",
             "session": [
-                "turn_detection": ["type": "server_vad"],
+                "turn_detection": [
+                    "type": "server_vad",
+                    "threshold": Decimal(0.9),
+                    "silence_duration_ms": 1000,
+                    "prefix_padding_ms": 300
+                ],
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
                 "voice": "sage",

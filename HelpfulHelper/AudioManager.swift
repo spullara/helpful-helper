@@ -108,8 +108,8 @@ class AudioManager {
         let hardwareInputFormat = inputNode.inputFormat(forBus: 0)
         let hardwareOutputFormat = engine.outputNode.outputFormat(forBus: 0)
 
-        if hardwareInputFormat.channelCount < 1 {
-            print("Error: Input format must have at least one channel.")
+        if hardwareInputFormat.channelCount < 1  || hardwareInputFormat.sampleRate == 0 {
+            print("Error: Input format must be valid.")
             return
         }
         
