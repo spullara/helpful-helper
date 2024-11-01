@@ -2,6 +2,8 @@ import SwiftUI
 import AVFoundation
 import DockKit
 import SwiftData
+import Vision
+import CoreML
 
 // MARK: - Content View
 struct ContentView: View {
@@ -9,7 +11,9 @@ struct ContentView: View {
     @State private var isSessionActive = false
     @State private var transcripts: [String] = []
     @State private var lastCapturedImage: UIImage? // Add this state variable
-    
+    @State private var faceEmbedding: MLMultiArray?
+    private var faceIdentifier = Faces()
+
     @StateObject private var sessionCoordinator: CameraSessionCoordinator
     @StateObject private var audioCoordinator: AudioStreamCoordinator
     
@@ -149,6 +153,12 @@ struct ContentView: View {
                 let capturedImage = try await sessionCoordinator.captureFace()
                 DispatchQueue.main.async {
                     self.lastCapturedImage = capturedImage
+                    if let embedding = self.faceIdentifier.getFaceEmbedding(for: capturedImage) {
+                        self.faceEmbedding = embedding
+                        print("Face Embedding: \(embedding)")
+                    } else {
+                        print("Failed to generate face embedding")
+                    }
                 }
             } catch {
                 print("Capture error: \(error)")
