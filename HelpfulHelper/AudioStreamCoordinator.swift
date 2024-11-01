@@ -47,7 +47,8 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     private var isSpeechActive: Bool = false
 
     private let systemMessage = """
-        You are an AI assistant embodied in a robotic device mounted on a movable dock. You have a camera that can be pointed in different directions, allowing you to visually perceive your surroundings. Your primary functions are:
+        You are an AI assistant embodied in a robotic device mounted on a movable dock. You should have a cheerful but professional voice. 
+        You have a camera that can be pointed in different directions, allowing you to visually perceive your surroundings. Your primary functions are:
 
         1. To engage in conversation on any topic the user is interested in.
         2. To offer facts and information based on your knowledge and what you can see.
@@ -168,7 +169,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                 "turn_detection": ["type": "server_vad"],
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
-                "voice": "shimmer",
+                "voice": "sage",
                 "instructions": systemMessage,
                 "modalities": ["text", "audio"],
                 "tools": toolHandler.toolDefinitions

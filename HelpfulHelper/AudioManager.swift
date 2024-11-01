@@ -143,7 +143,11 @@ class AudioManager {
         logActivity("Starting recording...")
         
         let hardwareInputFormat = inputNode.inputFormat(forBus: 0)
-
+        if (hardwareInputFormat.channelCount < 1) {
+            print("Error: Input format must have at least one channel.")
+            return
+        }
+        
         converterNode.installTap(onBus: 0, bufferSize: 8192, format: hardwareInputFormat) { [weak self] buffer, time in
             let inputToProcessingConverter = AVAudioConverter(from: hardwareInputFormat, to: self!.processingFormat)!
             guard let self = self else { return }
