@@ -13,6 +13,11 @@ import SwiftUI
 
 // MARK: - Camera Session Coordinator
 class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate, AVCaptureVideoDataOutputSampleBufferDelegate, ObservableObject {
+    // Add properties to store latest frames
+    private var latestFrontFrame: CVPixelBuffer?
+    private var latestBackFrame: CVPixelBuffer?
+    private let frameBufferLock = NSLock()
+    
     private var multiCamSession: AVCaptureMultiCamSession?
     private var frontPreviewLayer: AVCaptureVideoPreviewLayer?
     private var backPreviewLayer: AVCaptureVideoPreviewLayer?
@@ -266,94 +271,88 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
     private var isCapturing = false
     private var capturingCamera: AVCaptureDevice.Position?
     
-    func captureImage(from camera: String) async throws -> Data {
-        print("Attempting to capture image from \(camera) camera")
-        return try await withCheckedThrowingContinuation { continuation in
-            let videoOutput: AVCaptureVideoDataOutput?
-            let cameraPosition: AVCaptureDevice.Position
-            
-            if camera == "front" {
-                videoOutput = frontVideoOutput
-                cameraPosition = .front
-            } else if camera == "back" {
-                videoOutput = backVideoOutput
-                cameraPosition = .back
-            } else {
-                continuation.resume(throwing: CameraSessionError.invalidCamera)
-                return
-            }
-            
-            guard let output = videoOutput else {
-                continuation.resume(throwing: CameraSessionError.outputUnavailable)
-                return
-            }
-            
-            self.isCapturing = true
-            self.capturingCamera = cameraPosition
-            self.captureCompletion = { [weak self] result in
-                guard let self = self, self.isCapturing else { return }
-                
-                self.isCapturing = false
-                self.capturingCamera = nil
-                self.captureTimer?.invalidate()
-                self.captureTimer = nil
-                self.captureCompletion = nil
-                
-                switch result {
-                case .success(let data):
-                    continuation.resume(returning: data)
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
-            }
-            
-            self.captureTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-                guard let self = self, self.isCapturing else { return }
-                self.isCapturing = false
-                self.captureCompletion?(.failure(.captureTimeout))
-            }
-            
-            // Ensure we're capturing from the correct camera
-            DispatchQueue.main.async {
-                guard let connection = output.connection(with: .video) else {
-                    self.captureCompletion?(.failure(.captureFailed))
-                    return
-                }
-                connection.videoOrientation = .portrait
-                connection.isVideoMirrored = (cameraPosition == .front)
-            }
-        }
-    }
-    
     // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        // Store latest frame based on camera position
+        if let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+            frameBufferLock.lock()
+            if connection.inputPorts.first?.sourceDevicePosition == .front {
+                latestFrontFrame = imageBuffer
+            } else {
+                latestBackFrame = imageBuffer
+            }
+            frameBufferLock.unlock()
+        }
+        
+        // Only process capture request if we're explicitly capturing
         guard isCapturing, 
               let captureCompletion = self.captureCompletion,
               let capturingCamera = self.capturingCamera,
               connection.inputPorts.first?.sourceDevicePosition == capturingCamera else { return }
         
-        print("Capturing output from camera: \(connection.inputPorts.first?.sourceDevicePosition == .front ? "front" : "back")")
-
-        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            captureCompletion(.failure(.captureFailed))
-            return
-        }
+        print("Converting frame to JPEG for camera: \(connection.inputPorts.first?.sourceDevicePosition == .front ? "front" : "back")")
         
-        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
+        if let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+            let jpegData = convertFrameToJPEG(imageBuffer)
+            if let data = jpegData {
+                captureCompletion(.success(data))
+            } else {
+                captureCompletion(.failure(.captureFailed))
+            }
+        } else {
+            captureCompletion(.failure(.captureFailed))
+        }
+    }
+    
+    // Helper function to convert CVPixelBuffer to JPEG
+    private func convertFrameToJPEG(_ pixelBuffer: CVPixelBuffer) -> Data? {
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let context = CIContext()
         guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
-            captureCompletion(.failure(.captureFailed))
-            return
+            return nil
         }
         
         let uiImage = UIImage(cgImage: cgImage)
-        guard let jpegData = uiImage.jpegData(compressionQuality: 0.8) else {
-            captureCompletion(.failure(.captureFailed))
-            return
-        }
-        
-        captureCompletion(.success(jpegData))
+        return uiImage.jpegData(compressionQuality: 0.8)
     }
+    
+    // Modified capture function to use cached frame
+    func captureImage(from camera: String) async throws -> Data {
+        print("Attempting to capture image from \(camera) camera")
+        return try await withCheckedThrowingContinuation { continuation in
+            frameBufferLock.lock()
+            defer { frameBufferLock.unlock() }
+            
+            let frame: CVPixelBuffer?
+            if camera == "front" {
+                frame = latestFrontFrame
+            } else if camera == "back" {
+                frame = latestBackFrame
+            } else {
+                continuation.resume(throwing: CameraSessionError.invalidCamera)
+                return
+            }
+            
+            guard let pixelBuffer = frame else {
+                continuation.resume(throwing: CameraSessionError.outputUnavailable)
+                return
+            }
+            
+            if let jpegData = convertFrameToJPEG(pixelBuffer) {
+                continuation.resume(returning: jpegData)
+            } else {
+                continuation.resume(throwing: CameraSessionError.captureFailed)
+            }
+        }
+    }
+    
+    // Add function to access latest frames for ML processing
+    func getLatestFrame(camera: AVCaptureDevice.Position) -> CVPixelBuffer? {
+        frameBufferLock.lock()
+        defer { frameBufferLock.unlock() }
+        return camera == .front ? latestFrontFrame : latestBackFrame
+    }
+
 }
 
 enum CameraSessionError: Error {

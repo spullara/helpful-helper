@@ -8,6 +8,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var isSessionActive = false
     @State private var transcripts: [String] = []
+    @State private var lastCapturedImage: UIImage? // Add this state variable
     
     @StateObject private var sessionCoordinator: CameraSessionCoordinator
     @StateObject private var audioCoordinator: AudioStreamCoordinator
@@ -21,13 +22,33 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack {
-                Button(action: toggleSession) {
-                    Text(isSessionActive ? "Sleep" : "Wake")
-                        .font(.headline)
+                HStack {
+                    Button(action: toggleSession) {
+                        Text(isSessionActive ? "Sleep" : "Wake")
+                            .font(.headline)
+                            .padding()
+                            .background(isSessionActive ? Color.red : Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                    
+                    Button(action: testCapture) {
+                        Text("Test Capture")
+                            .font(.headline)
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                }
+                
+                if let image = lastCapturedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 200)
+                        .cornerRadius(12)
                         .padding()
-                        .background(isSessionActive ? Color.red : Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
                 }
                 
                 HStack(spacing: 10) {
@@ -72,7 +93,7 @@ struct ContentView: View {
                         }
                     }
                 }
-                
+
                 // Transcription Log
                 VStack {
                     Text("Transcription Log")
@@ -120,7 +141,21 @@ struct ContentView: View {
         }
         isSessionActive.toggle()
     }
-    
+
+    private func testCapture() {
+        Task {
+            do {
+                let imageData = try await sessionCoordinator.captureImage(from: "front")
+                if let image = UIImage(data: imageData) {
+                    DispatchQueue.main.async {
+                        self.lastCapturedImage = image
+                    }
+                }
+            } catch {
+                print("Capture error: \(error)")
+            }
+        }
+    }
 }
 
 #Preview {
