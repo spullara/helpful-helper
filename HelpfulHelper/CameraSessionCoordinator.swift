@@ -364,6 +364,47 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         return camera == .front ? latestFrontFrame : latestBackFrame
     }
 
+    func captureFace() async throws -> UIImage {
+        let imageData = try await captureImage(from: "front")
+        guard let image = UIImage(data: imageData) else {
+            throw CameraSessionError.captureFailed
+        }
+
+        if let firstPerson = trackedSubjects.first(where: { 
+            if case .person = $0 { return true } 
+            return false 
+        }), case .person(let person) = firstPerson {
+            let centerX = person.rect.midX * image.size.width
+            let centerY = person.rect.midY * image.size.height
+            let originalWidth = person.rect.width * image.size.width
+            let originalHeight = person.rect.height * image.size.height
+            
+            let newWidth = min(originalWidth * 2, image.size.width)
+            let newHeight = min(originalHeight * 2, image.size.height)
+            
+            let x = max(0, centerX - newWidth / 2)
+            let y = max(0, centerY - newHeight / 2)
+            
+            let width = min(newWidth, image.size.width - x)
+            let height = min(newHeight, image.size.height - y)
+            
+            // the crop needs to be rotated
+            let cropRect = CGRect(
+                x: y,
+                y: x,
+                width: height,
+                height: width
+            )
+            
+            if cropRect.width > 0 && cropRect.height > 0,
+               let cgImage = image.cgImage,
+               let croppedCGImage = cgImage.cropping(to: cropRect) {
+                return UIImage(cgImage: croppedCGImage, scale: image.scale, orientation: image.imageOrientation)
+            }
+        }
+        
+        return image
+    }
 }
 
 enum CameraSessionError: Error {
