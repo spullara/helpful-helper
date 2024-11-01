@@ -86,9 +86,25 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
 
         setupWebSocket()
     }
+    private func sendWebSocketMessage(_ payload: [String: Any], completion: ((Error?) -> Void)? = nil) {
+        guard let websocket = websocket,
+              let jsonData = try? JSONSerialization.data(withJSONObject: payload),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            completion?(NSError(domain: "WebSocketError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to serialize message"]))
+            return
+        }
+        
+        let message = URLSessionWebSocketTask.Message.string(jsonString)
+        websocket.send(message) { error in
+            if let error = error {
+                print("Failed to send WebSocket message: \(error)")
+            }
+            completion?(error)
+        }
+    }
 
     private func processAudioSamples(_ samples: [Int16]) {
-        guard isRecording, let websocket = websocket else { return }
+        guard isRecording, websocket != nil else { return }
         
         // Process tracking state for confidence values
         if let trackingState = cameraCoordinator.trackedSubjects.first,
@@ -103,27 +119,15 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
             return
         }
 
-        // Convert samples to Data
-        let audioData = Data(bytes: samples, count: samples.count * 2) // 2 bytes per Int16
-        
-        // Convert to base64
+        let audioData = Data(bytes: samples, count: samples.count * 2)
         let base64Audio = audioData.base64EncodedString()
         
-        // Prepare audio append message
         let audioAppend: [String: Any] = [
             "type": "input_audio_buffer.append",
             "audio": base64Audio
         ]
         
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: audioAppend),
-              let jsonString = String(data: jsonData, encoding: .utf8) else { return }
-        
-        let message = URLSessionWebSocketTask.Message.string(jsonString)
-        websocket.send(message) { error in
-            if let error = error {
-                print("Failed to send audio data: \(error)")
-            }
-        }
+        sendWebSocketMessage(audioAppend)
     }
     
     private func playAudioData(_ audioData: Data) {
@@ -184,11 +188,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
             ]
         ]
 
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: config),
-              let jsonString = String(data: jsonData, encoding: .utf8) else { return }
-        
-        let message = URLSessionWebSocketTask.Message.string(jsonString)
-        websocket?.send(message) { error in
+        sendWebSocketMessage(config) { error in
             if let error = error {
                 print("Failed to send session configuration: \(error)")
             }
@@ -273,19 +273,11 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         // Clear playback buffers
         audioManager?.clearPlaybackBuffers()
         
-        // Send interrupt message to OpenAI
         let interruptMessage: [String: Any] = [
             "type": "response.cancel"
         ]
         
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: interruptMessage),
-              let jsonString = String(data: jsonData, encoding: .utf8) else {
-            print("Failed to create interrupt message")
-            return
-        }
-        
-        let message = URLSessionWebSocketTask.Message.string(jsonString)
-        websocket?.send(message) { error in
+        sendWebSocketMessage(interruptMessage) { error in
             if let error = error {
                 print("Failed to send interrupt message: \(error)")
             } else {
@@ -337,14 +329,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
             ]
         ]
         
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: messageEvent),
-              let jsonString = String(data: jsonData, encoding: .utf8) else {
-            print("Failed to create automated message")
-            return
-        }
-        
-        let webSocketMessage = URLSessionWebSocketTask.Message.string(jsonString)
-        websocket?.send(webSocketMessage) { error in
+        sendWebSocketMessage(messageEvent) { error in
             if let error = error {
                 print("Failed to send automated message: \(error)")
             } else {

@@ -312,6 +312,7 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
             return nil
         }
         
+        // Create UIImage and rotate if needed
         let uiImage = UIImage(cgImage: cgImage)
         let rotatedImage: UIImage
         
