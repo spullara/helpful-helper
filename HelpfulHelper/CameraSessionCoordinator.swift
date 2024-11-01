@@ -313,7 +313,17 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
         }
         
         let uiImage = UIImage(cgImage: cgImage)
-        return uiImage.jpegData(compressionQuality: 0.8)
+        let rotatedImage: UIImage
+        
+        // Check if we need to rotate (device is in portrait)
+        if UIDevice.current.orientation == .portrait {
+            // Rotate 90 degrees clockwise
+            rotatedImage = UIImage(cgImage: cgImage, scale: uiImage.scale, orientation: .right)
+        } else {
+            rotatedImage = uiImage
+        }
+        
+        return rotatedImage.jpegData(compressionQuality: 0.8)
     }
     
     // Modified capture function to use cached frame
