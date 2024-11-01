@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		2291562F2CD54D3D00F460E4 /* BFES.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2291562E2CD54D3D00F460E4 /* BFES.xcframework */; };
+		229156302CD54D3D00F460E4 /* BFES.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2291562E2CD54D3D00F460E4 /* BFES.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		22EF60902CCAFC2900F2BCDC /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -23,7 +28,22 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		229156312CD54D3D00F460E4 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				229156302CD54D3D00F460E4 /* BFES.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		2291562E2CD54D3D00F460E4 /* BFES.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = BFES.xcframework; path = ../bfes/BFES.xcframework; sourceTree = "<group>"; };
 		22EF607B2CCAFC2800F2BCDC /* HelpfulHelper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HelpfulHelper.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		22EF608F2CCAFC2900F2BCDC /* HelpfulHelperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HelpfulHelperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		22EF60992CCAFC2900F2BCDC /* HelpfulHelperUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HelpfulHelperUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -65,6 +85,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2291562F2CD54D3D00F460E4 /* BFES.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -85,12 +106,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		2291562D2CD54D3D00F460E4 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2291562E2CD54D3D00F460E4 /* BFES.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		22EF60722CCAFC2800F2BCDC = {
 			isa = PBXGroup;
 			children = (
 				22EF607D2CCAFC2800F2BCDC /* HelpfulHelper */,
 				22EF60922CCAFC2900F2BCDC /* HelpfulHelperTests */,
 				22EF609C2CCAFC2900F2BCDC /* HelpfulHelperUITests */,
+				2291562D2CD54D3D00F460E4 /* Frameworks */,
 				22EF607C2CCAFC2800F2BCDC /* Products */,
 			);
 			sourceTree = "<group>";
@@ -115,6 +145,7 @@
 				22EF60772CCAFC2800F2BCDC /* Sources */,
 				22EF60782CCAFC2800F2BCDC /* Frameworks */,
 				22EF60792CCAFC2800F2BCDC /* Resources */,
+				229156312CD54D3D00F460E4 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
