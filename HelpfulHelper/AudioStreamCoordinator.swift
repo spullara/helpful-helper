@@ -44,7 +44,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     @Published var averageLookingAtCameraConfidence: Double = 0
     private var confidenceAccumulator: (speaking: Double, looking: Double) = (0, 0)
     private var confidenceSampleCount: Int = 0
-    private var isSpeechActive: Bool = false
+    @Published var isSpeechActive: Bool = false
 
     private let systemMessage = """
         You are an AI assistant named "Holly" embodied in a robotic device mounted on a movable dock.

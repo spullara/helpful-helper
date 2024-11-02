@@ -4,18 +4,25 @@ import DockKit
 import SwiftData
 import Vision
 import CoreML
+import CoreFoundation
 
 // MARK: - Content View
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var isSessionActive = false
     @State private var transcripts: [String] = []
-    @State private var lastCapturedImage: UIImage? // Add this state variable
+    @State private var lastCapturedImage: UIImage?
     @State private var faceEmbedding: MLMultiArray?
     private var faceIdentifier = Faces()
 
     @StateObject private var sessionCoordinator: CameraSessionCoordinator
     @StateObject private var audioCoordinator: AudioStreamCoordinator
+    
+    // New state variables for face embedding collection
+    @State private var faceEmbeddings: [MLMultiArray] = []
+    @State private var embeddingTimer: Timer?
+    @State private var averageFaceEmbedding: MLMultiArray?
+    @State private var totalEmbeddings: Int = 0
     
     init() {
         let cameraCoordinator = CameraSessionCoordinator()
@@ -118,8 +125,9 @@ struct ContentView: View {
                 .padding()
 
                 VStack {
-                    Text("Avg Speaking Confidence: \(audioCoordinator.averageSpeakingConfidence, specifier: "%.2f")")
-                    Text("Avg Looking at Camera Confidence: \(audioCoordinator.averageLookingAtCameraConfidence, specifier: "%.2f")")
+                    Text("Speaking: \(audioCoordinator.averageSpeakingConfidence, specifier: "%.2f")")
+                    Text("Looking: \(audioCoordinator.averageLookingAtCameraConfidence, specifier: "%.2f")")
+                    Text("Total Embeddings: \(totalEmbeddings)")
                 }
                 .padding()
                 .background(Color.gray.opacity(0.1))
@@ -134,6 +142,13 @@ struct ContentView: View {
                 if transcripts.count > 10 {
                     transcripts.removeFirst()
                 }
+            }
+        }
+        .onReceive(audioCoordinator.$isSpeechActive) { isSpeechActive in
+            if isSpeechActive {
+                startCollectingEmbeddings()
+            } else {
+                stopCollectingEmbeddings()
             }
         }
     }
@@ -153,9 +168,14 @@ struct ContentView: View {
                 let capturedImage = try await sessionCoordinator.captureFace()
                 DispatchQueue.main.async {
                     self.lastCapturedImage = capturedImage
+                    
+                    let startTime = CFAbsoluteTimeGetCurrent()
                     if let embedding = self.faceIdentifier.getFaceEmbedding(for: capturedImage) {
+                        let endTime = CFAbsoluteTimeGetCurrent()
+                        let elapsedTime = endTime - startTime
+                        
                         self.faceEmbedding = embedding
-                        print("Face Embedding: \(embedding)")
+                        print("Face Embedding Time: \(elapsedTime) seconds")
                     } else {
                         print("Failed to generate face embedding")
                     }
@@ -164,6 +184,71 @@ struct ContentView: View {
                 print("Capture error: \(error)")
             }
         }
+    }
+    private func startCollectingEmbeddings() {
+        faceEmbeddings = []
+        embeddingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            Task {
+                await collectFaceEmbedding()
+            }
+        }
+        print("Started collecting face embeddings.")
+    }
+
+    private func stopCollectingEmbeddings() {
+        embeddingTimer?.invalidate()
+        embeddingTimer = nil
+        calculateAverageFaceEmbedding()
+        print("Stopped collecting face embeddings.")
+    }
+
+    private func collectFaceEmbedding() async {
+        do {
+            let capturedImage = try await sessionCoordinator.captureFace()
+            
+            // Check if there's a tracked person with looking confidence > 0.8
+            if let trackedPerson = sessionCoordinator.trackedSubjects.first(where: { subject in
+                if case .person(let person) = subject,
+                   let lookingConfidence = person.lookingAtCameraConfidence,
+                   lookingConfidence > 0.8 {
+                    return true
+                }
+                return false
+            }) {
+                if let embedding = faceIdentifier.getFaceEmbedding(for: capturedImage) {
+                    DispatchQueue.main.async {
+                        self.faceEmbeddings.append(embedding)
+                        self.totalEmbeddings = self.faceEmbeddings.count
+                    }
+                }
+            }
+        } catch {
+            print("Face capture error: \(error)")
+        }
+    }
+
+    private func calculateAverageFaceEmbedding() {
+        guard !faceEmbeddings.isEmpty else { return }
+
+        let embeddingSize = faceEmbeddings[0].count
+        var averageEmbedding = [Double](repeating: 0, count: embeddingSize)
+
+        for embedding in faceEmbeddings {
+            for i in 0..<embeddingSize {
+                averageEmbedding[i] += embedding[i].doubleValue
+            }
+        }
+
+        for i in 0..<embeddingSize {
+            averageEmbedding[i] /= Double(faceEmbeddings.count)
+        }
+
+        averageFaceEmbedding = try? MLMultiArray(shape: [embeddingSize as NSNumber], dataType: .double)
+        for i in 0..<embeddingSize {
+            averageFaceEmbedding?[i] = NSNumber(value: averageEmbedding[i])
+        }
+
+        print("Average Face Embedding calculated. Total embeddings: \(faceEmbeddings.count)")
     }
 }
 
