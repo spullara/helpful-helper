@@ -30,7 +30,7 @@ struct ContentView: View {
 
     // Add a new property for the EmbeddingIndex
     @State private var embeddingIndex: EmbeddingIndex?
-    @State private var embeddingMatchLog: [(String, Float)] = []
+    @State private var embeddingMatchLog: [(String, Float, UIImage?)] = []
 
     init() {
         let cameraCoordinator = CameraSessionCoordinator()
@@ -145,15 +145,32 @@ struct ContentView: View {
                 VStack {
                     Text("Embedding Match Log")
                         .font(.headline)
-                    ScrollView {
-                        LazyVStack(alignment: .leading) {
-                            ForEach(embeddingMatchLog, id: \.0) { match in
-                                Text("\(match.0): \(match.1, specifier: "%.4f")")
-                                    .padding(.vertical, 2)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 10) {
+                        ForEach(embeddingMatchLog, id: \.0) { match in
+                            ZStack(alignment: .bottom) {
+                                if let image = match.2 {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: (geometry.size.width - 50) / 4, height: (geometry.size.width - 50) / 4)
+                                        .clipped()
+                                        .cornerRadius(8)
+                                } else {
+                                    Rectangle()
+                                        .fill(Color.gray)
+                                        .frame(width: (geometry.size.width - 50) / 4, height: (geometry.size.width - 50) / 4)
+                                        .cornerRadius(8)
+                                }
+                                Text(String(format: "%.4f", match.1))
+                                    .font(.caption)
+                                    .padding(4)
+                                    .background(Color.black.opacity(0.6))
+                                    .foregroundColor(.white)
+                                    .cornerRadius(4)
                             }
                         }
                     }
-                    .frame(height: 150)
+                    .frame(height: ((geometry.size.width - 50) / 4) * 2.5) // Adjust height as needed
                     .background(Color.gray.opacity(0.1))
                     .cornerRadius(12)
                 }
@@ -284,18 +301,22 @@ struct ContentView: View {
             if let fileName = dbHelper.saveFrameAsImage(image),
                let averageEmbedding = averageFaceEmbedding {
                 let floatArray = convertToArray(averageEmbedding)
-                
+
                 // Search for similar embeddings before adding
                 if let searchResults = embeddingIndex?.search(vector: floatArray, k: 10) {
                     DispatchQueue.main.async {
-                        self.embeddingMatchLog = searchResults.map { (embeddingIndex?.getLocalIdentifier($0.0) ?? "Unknown", $0.1) }
+                        self.embeddingMatchLog = searchResults.map { result in
+                            let identifier = embeddingIndex?.getLocalIdentifier(result.0) ?? "Unknown"
+                            let image = self.loadImage(for: identifier)
+                            return (identifier, result.1, image)
+                        }
                     }
                 }
-                
+
                 // Store the average embedding and filename in the database
                 if let embeddingId = dbHelper.storeFaceEmbedding(averageEmbedding, filename: fileName) {
                     print("Stored average face embedding with ID: \(embeddingId)")
-                    
+
                     // Add the new embedding to the EmbeddingIndex
                     embeddingIndex?.add(vector: floatArray, localIdentifier: fileName)
                     print("Added new embedding to the index")
@@ -304,6 +325,12 @@ struct ContentView: View {
         }
 
         print("Average Face Embedding calculated and stored. Total embeddings: \(faceEmbeddings.count)")
+    }
+
+    private func loadImage(for identifier: String) -> UIImage? {
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let fileURL = documentsDirectory.appendingPathComponent(identifier)
+        return UIImage(contentsOfFile: fileURL.path)
     }
 
     // Helper function to convert MLMultiArray to [Float]
