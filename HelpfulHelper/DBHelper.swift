@@ -205,7 +205,7 @@ class DBHelper {
             
             if let blobPointer = blobPointer {
                 let data = Data(bytes: blobPointer, count: Int(blobSize))
-                if let embedding = try? MLMultiArray(data: data) {
+                if let embedding = try? MLMultiArray(data) {
                     embeddings.append(embedding)
                 }
             }
