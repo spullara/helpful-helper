@@ -295,32 +295,36 @@ struct ContentView: View {
             averageFaceEmbedding?[i] = NSNumber(value: averageEmbedding[i])
         }
 
-        // Save the last frame as an image
-        if let lastFrame = sessionCoordinator.getLatestFrame(camera: .front) {
-            let image = UIImage(ciImage: CIImage(cvPixelBuffer: lastFrame))
-            if let fileName = dbHelper.saveFrameAsImage(image),
-               let averageEmbedding = averageFaceEmbedding {
-                let floatArray = convertToArray(averageEmbedding)
+        // Use captureFace instead of getLatestFrame
+        Task {
+            do {
+                let capturedFaceImage = try await sessionCoordinator.captureFace()
+                if let fileName = dbHelper.saveFrameAsImage(capturedFaceImage),
+                   let averageEmbedding = averageFaceEmbedding {
+                    let floatArray = convertToArray(averageEmbedding)
 
-                // Search for similar embeddings before adding
-                if let searchResults = embeddingIndex?.search(vector: floatArray, k: 10) {
-                    DispatchQueue.main.async {
-                        self.embeddingMatchLog = searchResults.map { result in
-                            let identifier = embeddingIndex?.getLocalIdentifier(result.0) ?? "Unknown"
-                            let image = self.loadImage(for: identifier)
-                            return (identifier, result.1, image)
+                    // Search for similar embeddings before adding
+                    if let searchResults = embeddingIndex?.search(vector: floatArray, k: 10) {
+                        DispatchQueue.main.async {
+                            self.embeddingMatchLog = searchResults.map { result in
+                                let identifier = embeddingIndex?.getLocalIdentifier(result.0) ?? "Unknown"
+                                let image = self.loadImage(for: identifier)
+                                return (identifier, result.1, image)
+                            }
                         }
                     }
-                }
 
-                // Store the average embedding and filename in the database
-                if let embeddingId = dbHelper.storeFaceEmbedding(averageEmbedding, filename: fileName) {
-                    print("Stored average face embedding with ID: \(embeddingId)")
+                    // Store the average embedding and filename in the database
+                    if let embeddingId = dbHelper.storeFaceEmbedding(averageEmbedding, filename: fileName) {
+                        print("Stored average face embedding with ID: \(embeddingId)")
 
-                    // Add the new embedding to the EmbeddingIndex
-                    embeddingIndex?.add(vector: floatArray, localIdentifier: fileName)
-                    print("Added new embedding to the index")
+                        // Add the new embedding to the EmbeddingIndex
+                        embeddingIndex?.add(vector: floatArray, localIdentifier: fileName)
+                        print("Added new embedding to the index")
+                    }
                 }
+            } catch {
+                print("Error capturing face image: \(error)")
             }
         }
 
