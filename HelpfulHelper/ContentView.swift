@@ -5,6 +5,7 @@ import SwiftData
 import Vision
 import CoreML
 import CoreFoundation
+import UIKit
 
 // MARK: - Content View
 struct ContentView: View {
@@ -23,6 +24,9 @@ struct ContentView: View {
     @State private var embeddingTimer: Timer?
     @State private var averageFaceEmbedding: MLMultiArray?
     @State private var totalEmbeddings: Int = 0
+    
+    // Create DBHelper instance once
+    private let dbHelper = DBHelper()
     
     init() {
         let cameraCoordinator = CameraSessionCoordinator()
@@ -248,7 +252,18 @@ struct ContentView: View {
             averageFaceEmbedding?[i] = NSNumber(value: averageEmbedding[i])
         }
 
-        print("Average Face Embedding calculated. Total embeddings: \(faceEmbeddings.count)")
+        // Save the last frame as an image
+        if let lastFrame = sessionCoordinator.getLatestFrame(camera: .front) {
+            let image = UIImage(ciImage: CIImage(cvPixelBuffer: lastFrame))
+            if let fileName = dbHelper.saveFrameAsImage(image),
+               let averageEmbedding = averageFaceEmbedding {
+                // Store the average embedding and filename in the database
+                let embeddingId = dbHelper.storeFaceEmbedding(averageEmbedding, filename: fileName)
+                print("Stored average face embedding with ID: \(embeddingId ?? -1)")
+            }
+        }
+
+        print("Average Face Embedding calculated and stored. Total embeddings: \(faceEmbeddings.count)")
     }
 }
 

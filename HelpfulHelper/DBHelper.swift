@@ -1,6 +1,7 @@
 import Foundation
 import SQLite3
 import CoreML
+import UIKit
 
 class DBHelper {
     var db: OpaquePointer?
@@ -34,7 +35,7 @@ class DBHelper {
                 version INTEGER
             )
         """)
-        
+
         // Get the version from the version table, defaulting to 0
         var version: Int32 = 0
         let query = "SELECT version FROM version"
@@ -45,9 +46,9 @@ class DBHelper {
             }
         }
         sqlite3_finalize(statement)
-        
+
         print("Database version: \(version)")
-        
+
         // If the version is 0, insert the initial version
         if version == 0 {
             execSQL(sql: "INSERT INTO version (version) VALUES (1)")
@@ -83,6 +84,15 @@ class DBHelper {
 
             updateVersion(newVersion: 2)
         }
+
+        if version < 3 {
+            execSQL(sql: """
+                ALTER TABLE face_embeddings
+                ADD COLUMN filename TEXT
+            """)
+
+            updateVersion(newVersion: 3)
+        }
     }
 
     private func execSQL(sql: String) {
@@ -111,8 +121,8 @@ class DBHelper {
     }
 
     // New function to store a face embedding
-    func storeFaceEmbedding(_ embedding: MLMultiArray) -> Int64? {
-        let sql = "INSERT INTO face_embeddings (embedding) VALUES (?)"
+    func storeFaceEmbedding(_ embedding: MLMultiArray, filename: String) -> Int64? {
+        let sql = "INSERT INTO face_embeddings (embedding, filename) VALUES (?, ?)"
         var statement: OpaquePointer?
         
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -122,6 +132,7 @@ class DBHelper {
         
         let data = Data(bytes: embedding.dataPointer, count: embedding.count * MemoryLayout<Float>.size)
         sqlite3_bind_blob(statement, 1, (data as NSData).bytes, Int32(data.count), nil)
+        sqlite3_bind_text(statement, 2, (filename as NSString).utf8String, -1, nil)
         
         guard sqlite3_step(statement) == SQLITE_DONE else {
             print("Error inserting face embedding: \(String(cString: sqlite3_errmsg(db)!))")
@@ -213,5 +224,23 @@ class DBHelper {
         
         sqlite3_finalize(statement)
         return embeddings
+    }
+    func saveFrameAsImage(_ image: UIImage) -> String? {
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let fileName = "frame_\(Date().timeIntervalSince1970).jpg"
+        let fileURL = documentsDirectory.appendingPathComponent(fileName)
+        
+        guard let data = image.jpegData(compressionQuality: 0.8) else {
+            print("Error converting image to JPEG data")
+            return nil
+        }
+        
+        do {
+            try data.write(to: fileURL)
+            return fileName
+        } catch {
+            print("Error saving image: \(error)")
+            return nil
+        }
     }
 }
