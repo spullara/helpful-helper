@@ -18,22 +18,25 @@ struct ContentView: View {
 
     @StateObject private var sessionCoordinator: CameraSessionCoordinator
     @StateObject private var audioCoordinator: AudioStreamCoordinator
-    
+
     // New state variables for face embedding collection
     @State private var faceEmbeddings: [MLMultiArray] = []
     @State private var embeddingTimer: Timer?
     @State private var averageFaceEmbedding: MLMultiArray?
     @State private var totalEmbeddings: Int = 0
-    
+
     // Create DBHelper instance once
     private let dbHelper = DBHelper()
-    
+
+    // Add a new property for the EmbeddingIndex
+    @State private var embeddingIndex: EmbeddingIndex?
+
     init() {
         let cameraCoordinator = CameraSessionCoordinator()
         _sessionCoordinator = StateObject(wrappedValue: cameraCoordinator)
         _audioCoordinator = StateObject(wrappedValue: AudioStreamCoordinator(cameraCoordinator: cameraCoordinator))
     }
-    
+
     var body: some View {
         GeometryReader { geometry in
             VStack {
@@ -46,7 +49,7 @@ struct ContentView: View {
                             .foregroundColor(.white)
                             .cornerRadius(10)
                     }
-                    
+
                     Button(action: testCapture) {
                         Text("Test Capture")
                             .font(.headline)
@@ -56,7 +59,7 @@ struct ContentView: View {
                             .cornerRadius(10)
                     }
                 }
-                
+
                 if let image = lastCapturedImage {
                     Image(uiImage: image)
                         .resizable()
@@ -66,7 +69,7 @@ struct ContentView: View {
                         .padding()
                         .background(Color.gray.opacity(0.1))
                 }
-                
+
                 HStack(spacing: 10) {
                     // Front camera preview
                     VStack {
@@ -155,6 +158,9 @@ struct ContentView: View {
                 stopCollectingEmbeddings()
             }
         }
+        .onAppear {
+            loadFaceEmbeddings()
+        }
     }
 
     private func toggleSession() {
@@ -172,12 +178,12 @@ struct ContentView: View {
                 let capturedImage = try await sessionCoordinator.captureFace()
                 DispatchQueue.main.async {
                     self.lastCapturedImage = capturedImage
-                    
+
                     let startTime = CFAbsoluteTimeGetCurrent()
                     if let embedding = self.faceIdentifier.getFaceEmbedding(for: capturedImage) {
                         let endTime = CFAbsoluteTimeGetCurrent()
                         let elapsedTime = endTime - startTime
-                        
+
                         self.faceEmbedding = embedding
                         print("Face Embedding Time: \(elapsedTime) seconds")
                     } else {
@@ -209,7 +215,7 @@ struct ContentView: View {
     private func collectFaceEmbedding() async {
         do {
             let capturedImage = try await sessionCoordinator.captureFace()
-            
+
             // Check if there's a tracked person with looking confidence > 0.8
             if let trackedPerson = sessionCoordinator.trackedSubjects.first(where: { subject in
                 if case .person(let person) = subject,
@@ -256,14 +262,44 @@ struct ContentView: View {
         if let lastFrame = sessionCoordinator.getLatestFrame(camera: .front) {
             let image = UIImage(ciImage: CIImage(cvPixelBuffer: lastFrame))
             if let fileName = dbHelper.saveFrameAsImage(image),
-               let averageEmbedding = averageFaceEmbedding {
+            let averageEmbedding = averageFaceEmbedding {
                 // Store the average embedding and filename in the database
-                let embeddingId = dbHelper.storeFaceEmbedding(averageEmbedding, filename: fileName)
-                print("Stored average face embedding with ID: \(embeddingId ?? -1)")
+                if let embeddingId = dbHelper.storeFaceEmbedding(averageEmbedding, filename: fileName) {
+                    print("Stored average face embedding with ID: \(embeddingId)")
+                    
+                    // Add the new embedding to the EmbeddingIndex
+                    let floatArray = convertToArray(averageEmbedding)
+                    embeddingIndex?.add(vector: floatArray, localIdentifier: fileName)
+                    print("Added new embedding to the index")
+                }
             }
         }
 
         print("Average Face Embedding calculated and stored. Total embeddings: \(faceEmbeddings.count)")
+    }
+
+    // Helper function to convert MLMultiArray to [Float]
+    private func convertToArray(_ mlMultiArray: MLMultiArray) -> [Float] {
+        let length = mlMultiArray.count
+        var array = [Float](repeating: 0.0, count: length)
+        for i in 0...length - 1 {
+            array[i] = Float(truncating: mlMultiArray[i])
+        }
+        return array
+    }
+
+    private func loadFaceEmbeddings() {
+        // Initialize the EmbeddingIndex
+        embeddingIndex = EmbeddingIndex(name: "FaceEmbeddings", dim: 512) // Assuming 512-dimensional embeddings
+
+        // Load existing embeddings from the database
+        let embeddings = dbHelper.getAllFaceEmbeddings()
+        for (embedding, identifier) in embeddings {
+            let floatArray = convertToArray(embedding)
+            embeddingIndex?.add(vector: floatArray, localIdentifier: identifier)
+        }
+        
+        print("Loaded \(embeddings.count) face embeddings into the index")
     }
 }
 

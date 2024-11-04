@@ -243,4 +243,31 @@ class DBHelper {
             return nil
         }
     }
+
+    func getAllFaceEmbeddings() -> [(MLMultiArray, String)] {
+        let sql = "SELECT embedding, filename FROM face_embeddings"
+        var statement: OpaquePointer?
+        var embeddings: [(MLMultiArray, String)] = []
+        
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            print("Error preparing statement: \(String(cString: sqlite3_errmsg(db)!))")
+            return embeddings
+        }
+        
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let blobPointer = sqlite3_column_blob(statement, 0)
+            let blobSize = sqlite3_column_bytes(statement, 0)
+            let filename = String(cString: sqlite3_column_text(statement, 1))
+            
+            if let blobPointer = blobPointer {
+                let data = Data(bytes: blobPointer, count: Int(blobSize))
+                if let embedding = try? MLMultiArray(data) {
+                    embeddings.append((embedding, filename))
+                }
+            }
+        }
+        
+        sqlite3_finalize(statement)
+        return embeddings
+    }
 }
