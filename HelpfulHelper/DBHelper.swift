@@ -270,4 +270,27 @@ class DBHelper {
         sqlite3_finalize(statement)
         return embeddings
     }
+
+    func clearDatabase() {
+        let tables = ["face_embeddings", "user_interactions", "users"]
+        
+        for table in tables {
+            let deleteSQL = "DELETE FROM \(table)"
+            var statement: OpaquePointer?
+            
+            if sqlite3_prepare_v2(db, deleteSQL, -1, &statement, nil) == SQLITE_OK {
+                if sqlite3_step(statement) == SQLITE_DONE {
+                    print("Successfully cleared table: \(table)")
+                } else {
+                    print("Error clearing table \(table): \(String(cString: sqlite3_errmsg(db)!))")
+                }
+            } else {
+                print("Error preparing clear statement for table \(table): \(String(cString: sqlite3_errmsg(db)!))")
+            }
+            
+            sqlite3_finalize(statement)
+        }
+        
+        print("Database cleared")
+    }
 }

@@ -51,11 +51,11 @@ struct ContentView: View {
                             .cornerRadius(10)
                     }
 
-                    Button(action: testCapture) {
-                        Text("Test Capture")
+                    Button(action: resetDatabase) {
+                        Text("Reset")
                             .font(.headline)
                             .padding()
-                            .background(Color.blue)
+                            .background(Color.orange)
                             .foregroundColor(.white)
                             .cornerRadius(10)
                     }
@@ -209,29 +209,22 @@ struct ContentView: View {
         isSessionActive.toggle()
     }
 
-    private func testCapture() {
-        Task {
-            do {
-                let capturedImage = try await sessionCoordinator.captureFace()
-                DispatchQueue.main.async {
-                    self.lastCapturedImage = capturedImage
-
-                    let startTime = CFAbsoluteTimeGetCurrent()
-                    if let embedding = self.faceIdentifier.getFaceEmbedding(for: capturedImage) {
-                        let endTime = CFAbsoluteTimeGetCurrent()
-                        let elapsedTime = endTime - startTime
-
-                        self.faceEmbedding = embedding
-                        print("Face Embedding Time: \(elapsedTime) seconds")
-                    } else {
-                        print("Failed to generate face embedding")
-                    }
-                }
-            } catch {
-                print("Capture error: \(error)")
-            }
-        }
+    private func resetDatabase() {
+        // Clear the database
+        dbHelper.clearDatabase()
+        
+        // Reset state variables
+        faceEmbeddings = []
+        averageFaceEmbedding = nil
+        totalEmbeddings = 0
+        embeddingMatchLog = []
+        
+        // Reinitialize the embedding index
+        embeddingIndex = EmbeddingIndex(name: "FaceEmbeddings", dim: 512)
+        
+        print("Database reset completed")
     }
+
     private func startCollectingEmbeddings() {
         faceEmbeddings = []
         embeddingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
@@ -303,6 +296,15 @@ struct ContentView: View {
                    let averageEmbedding = averageFaceEmbedding {
                     let floatArray = convertToArray(averageEmbedding)
 
+                    // Store the average embedding and filename in the database
+                    if let embeddingId = dbHelper.storeFaceEmbedding(averageEmbedding, filename: fileName) {
+                        print("Stored average face embedding with ID: \(embeddingId)")
+
+                        // Add the new embedding to the EmbeddingIndex
+                        embeddingIndex?.add(vector: floatArray, localIdentifier: fileName)
+                        print("Added new embedding to the index")
+                    }
+
                     // Search for similar embeddings before adding
                     if let searchResults = embeddingIndex?.search(vector: floatArray, k: 10) {
                         DispatchQueue.main.async {
@@ -312,15 +314,6 @@ struct ContentView: View {
                                 return (identifier, result.1, image)
                             }
                         }
-                    }
-
-                    // Store the average embedding and filename in the database
-                    if let embeddingId = dbHelper.storeFaceEmbedding(averageEmbedding, filename: fileName) {
-                        print("Stored average face embedding with ID: \(embeddingId)")
-
-                        // Add the new embedding to the EmbeddingIndex
-                        embeddingIndex?.add(vector: floatArray, localIdentifier: fileName)
-                        print("Added new embedding to the index")
                     }
                 }
             } catch {
