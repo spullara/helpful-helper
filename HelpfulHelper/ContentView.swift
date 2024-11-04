@@ -30,6 +30,7 @@ struct ContentView: View {
 
     // Add a new property for the EmbeddingIndex
     @State private var embeddingIndex: EmbeddingIndex?
+    @State private var embeddingMatchLog: [(String, Float)] = []
 
     init() {
         let cameraCoordinator = CameraSessionCoordinator()
@@ -139,10 +140,29 @@ struct ContentView: View {
                 .padding()
                 .background(Color.gray.opacity(0.1))
                 .cornerRadius(12)
+
+                // New Embedding Match Log
+                VStack {
+                    Text("Embedding Match Log")
+                        .font(.headline)
+                    ScrollView {
+                        LazyVStack(alignment: .leading) {
+                            ForEach(embeddingMatchLog, id: \.0) { match in
+                                Text("\(match.0): \(match.1, specifier: "%.4f")")
+                                    .padding(.vertical, 2)
+                            }
+                        }
+                    }
+                    .frame(height: 150)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(12)
+                }
+                .padding()
             }
             .padding()
 
         }
+        .padding()
         .onReceive(audioCoordinator.$latestTranscript) { newTranscript in
             if !newTranscript.isEmpty {
                 transcripts.append(newTranscript)
@@ -262,13 +282,21 @@ struct ContentView: View {
         if let lastFrame = sessionCoordinator.getLatestFrame(camera: .front) {
             let image = UIImage(ciImage: CIImage(cvPixelBuffer: lastFrame))
             if let fileName = dbHelper.saveFrameAsImage(image),
-            let averageEmbedding = averageFaceEmbedding {
+               let averageEmbedding = averageFaceEmbedding {
+                let floatArray = convertToArray(averageEmbedding)
+                
+                // Search for similar embeddings before adding
+                if let searchResults = embeddingIndex?.search(vector: floatArray, k: 10) {
+                    DispatchQueue.main.async {
+                        self.embeddingMatchLog = searchResults.map { (embeddingIndex?.getLocalIdentifier($0.0) ?? "Unknown", $0.1) }
+                    }
+                }
+                
                 // Store the average embedding and filename in the database
                 if let embeddingId = dbHelper.storeFaceEmbedding(averageEmbedding, filename: fileName) {
                     print("Stored average face embedding with ID: \(embeddingId)")
                     
                     // Add the new embedding to the EmbeddingIndex
-                    let floatArray = convertToArray(averageEmbedding)
                     embeddingIndex?.add(vector: floatArray, localIdentifier: fileName)
                     print("Added new embedding to the index")
                 }
