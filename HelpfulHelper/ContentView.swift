@@ -247,7 +247,7 @@ struct ContentView: View {
             let capturedImage = try await sessionCoordinator.captureFace()
 
             // Check if there's a tracked person with looking confidence > 0.8
-            if let trackedPerson = sessionCoordinator.trackedSubjects.first(where: { subject in
+            if let _ = sessionCoordinator.trackedSubjects.first(where: { subject in
                 if case .person(let person) = subject,
                    let lookingConfidence = person.lookingAtCameraConfidence,
                    lookingConfidence > 0.8 {
@@ -255,7 +255,7 @@ struct ContentView: View {
                 }
                 return false
             }) {
-                if let embedding = faceIdentifier.getFaceEmbedding(for: capturedImage) {
+                if let embedding = faceIdentifier.findFaces(image: capturedImage) {
                     DispatchQueue.main.async {
                         self.faceEmbeddings.append(embedding)
                         self.totalEmbeddings = self.faceEmbeddings.count

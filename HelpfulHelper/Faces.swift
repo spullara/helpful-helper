@@ -12,6 +12,38 @@ class Faces {
         self.facesModel = model
     }
 
+    func findFaces(image: UIImage) -> MLMultiArray? {
+        var faces: [(UIImage, MLMultiArray)] = []
+        let faceReq = VNDetectFaceRectanglesRequest()
+
+        let photoImage = image.cgImage!
+        let handler = VNImageRequestHandler(cgImage: photoImage,
+                orientation: CGImagePropertyOrientation(image.imageOrientation),
+                options: [:])
+
+        try? handler.perform([faceReq])
+        guard let faceObservations = faceReq.results else {
+            return nil
+        }
+        for faceObservation: VNFaceObservation in faceObservations {
+            var box: CGRect = VNImageRectForNormalizedRect(faceObservation.boundingBox, photoImage.width, photoImage.height)
+            box.origin = .init(x: box.minX, y: CGFloat(photoImage.height) - box.maxY)
+            guard let faceCroppedImage = photoImage.cropping(to: box) else {
+                fatalError("No rect!")
+            }
+            let face = UIImage(cgImage: faceCroppedImage)
+            if let faceVector = getFaceEmbedding(for: face) {
+                faces.append((face, faceVector))
+            }
+        }
+
+        // Only return the biggest face
+        faces.sort { $0.0.size.width * $0.0.size.height > $1.0.size.width * $1.0.size.height }
+
+        return faces.first?.1
+    }
+
+
     func getFaceEmbedding(for image: UIImage) -> MLMultiArray? {
         guard let cgImage = image.cgImage else { return nil }
         
