@@ -14,9 +14,9 @@ class ToolHandler {
                 "type": "function",
                 "name": "observe",
                 "description": """
-                Allows the AI to visually perceive its surroundings using the mounted camera. 
-                The AI can use this to gather information about the environment, recognize people or objects, 
-                and provide more contextual responses. The observation is private to the AI, 
+                Allows the AI to visually perceive its surroundings using the mounted camera.
+                The AI can use this to gather information about the environment, recognize people or objects,
+                and provide more contextual responses. The observation is private to the AI,
                 so it must describe what it sees to the user if asked about the environment.
                 """,
                 "parameters": [
@@ -24,15 +24,15 @@ class ToolHandler {
                     "properties": [
                         "query": [
                             "description": """
-                            The specific aspect or question about the environment that the AI wants to observe. 
+                            The specific aspect or question about the environment that the AI wants to observe.
                             This can range from general scene description to specific object or person identification.
                             """,
                             "type": "string"
                         ],
                         "camera": [
                             "description": """
-                            The camera direction to use for observation, either 'front' or 'back'. 
-                            Use 'front' for self-view or when interacting directly with users, 
+                            The camera direction to use for observation, either 'front' or 'back'.
+                            Use 'front' for self-view or when interacting directly with users,
                             and 'back' for observing the broader environment.
                             """,
                             "type": "string"
@@ -55,6 +55,21 @@ class ToolHandler {
                     ],
                     "required": ["query"]
                 ]
+            ],
+            [
+                "type": "function",
+                "name": "associateLastFaceWithUser",
+                "description": "Associates the last detected face embedding with a user name",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "userName": [
+                            "type": "string",
+                            "description": "The name of the user to associate with the last detected face"
+                        ]
+                    ],
+                    "required": ["userName"]
+                ]
             ]
         ]
     }
@@ -64,12 +79,14 @@ class ToolHandler {
               let argsJson = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] else {
             throw ToolHandlerError.invalidFunctionCall
         }
-        
+
         switch name {
         case "observe":
             return try await handleObserve(callId: callId, arguments: argsJson)
         case "webSearch":
             return try await handleWebSearch(callId: callId, arguments: argsJson)
+        case "associateLastFaceWithUser":
+            return try await handleAssociateLastFaceWithUser(callId: callId, arguments: argsJson)
         default:
             throw ToolHandlerError.unknownFunction
         }
@@ -195,6 +212,25 @@ class ToolHandler {
         }
         
         return try JSONSerialization.data(withJSONObject: results).toString()
+    }
+    private func handleAssociateLastFaceWithUser(callId: String, arguments: [String: Any]) async throws -> [String: Any] {
+        guard let userName = arguments["userName"] as? String else {
+            throw ToolHandlerError.invalidArguments
+        }
+        
+        let dbHelper = DBHelper()
+        let success = dbHelper.associateLastEmbeddingWithUser(userName: userName)
+        
+        let resultMessage = success ? "Successfully associated the last face with user: \(userName)" : "Failed to associate the last face with user: \(userName)"
+        
+        return [
+            "type": "conversation.item.create",
+            "item": [
+                "type": "function_call_output",
+                "call_id": callId,
+                "output": resultMessage
+            ]
+        ]
     }
 
 enum ToolHandlerError: Error {

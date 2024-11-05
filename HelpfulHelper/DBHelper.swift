@@ -293,4 +293,33 @@ class DBHelper {
         
         print("Database cleared")
     }
+    func associateLastEmbeddingWithUser(userName: String) -> Bool {
+        // Get the last face embedding
+        let getLastEmbeddingSql = "SELECT id FROM face_embeddings ORDER BY date_created DESC LIMIT 1"
+        var statement: OpaquePointer?
+        var lastEmbeddingId: Int64?
+        
+        if sqlite3_prepare_v2(db, getLastEmbeddingSql, -1, &statement, nil) == SQLITE_OK {
+            if sqlite3_step(statement) == SQLITE_ROW {
+                lastEmbeddingId = sqlite3_column_int64(statement, 0)
+            }
+        }
+        sqlite3_finalize(statement)
+        
+        guard let embeddingId = lastEmbeddingId else {
+            print("No face embeddings found")
+            return false
+        }
+        
+        // Add or get the user
+        let userId = addUser(name: userName) ?? 0
+        
+        if userId == 0 {
+            print("Failed to add or get user")
+            return false
+        }
+        
+        // Associate the user with the embedding
+        return relateUserToEmbedding(userId: userId, embeddingId: embeddingId)
+    }
 }
