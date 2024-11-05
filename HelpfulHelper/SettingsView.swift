@@ -9,8 +9,6 @@ struct SettingsView: View {
     @Environment(\.presentationMode) var presentationMode
     @FocusState private var isNewUserNameFocused: Bool
     
-    let dbHelper = DBHelper()
-    
     var body: some View {
         NavigationView {
             ZStack {
@@ -27,37 +25,23 @@ struct SettingsView: View {
                                 .focused($isNewUserNameFocused)
                             Button("Add") {
                                 if !newUserName.isEmpty {
-                                    dbHelper.addUser(name: newUserName)
-                                    loadUsers()
-                                    newUserName = ""
-                                    isNewUserNameFocused = false
+                                    if let userId = DBHelper.shared.addUser(name: newUserName) {
+                                        loadUsers()
+                                        newUserName = ""
+                                    }
                                 }
                             }
                         }
                     }
                     
-                    Section(header: Text("Existing Users")) {
+                    Section(header: Text("Users")) {
                         ForEach(users, id: \.0.id) { user, embeddingCount, closestFilename in
                             HStack {
-                                if let filename = closestFilename, let image = loadImage(filename: filename) {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(width: 50, height: 50)
-                                        .cornerRadius(25)
-                                } else {
-                                    Image(systemName: "person.circle")
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(width: 50, height: 50)
-                                        .foregroundColor(.gray)
-                                }
-                                
                                 VStack(alignment: .leading) {
                                     Text(user.name)
-                                    Text("\(embeddingCount) embeddings")
+                                    Text("Embeddings: \(embeddingCount)")
                                         .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(.gray)
                                 }
                                 
                                 Spacer()
@@ -68,7 +52,7 @@ struct SettingsView: View {
                                 }
                                 
                                 Button("Unassociate") {
-                                    dbHelper.unassociateUserFromEmbeddings(userId: user.id)
+                                    DBHelper.shared.unassociateUserFromEmbeddings(userId: user.id)
                                     loadUsers()
                                 }
                             }
@@ -78,14 +62,11 @@ struct SettingsView: View {
                 .listStyle(InsetGroupedListStyle())
             }
             .navigationTitle("Settings")
-            .navigationBarItems(trailing: Button("Done") {
-                presentationMode.wrappedValue.dismiss()
-            })
             .onAppear(perform: loadUsers)
             .sheet(isPresented: $isEditingUser) {
                 if let user = selectedUser {
                     EditUserView(user: user, onSave: { updatedName in
-                        dbHelper.updateUserName(userId: user.id, newName: updatedName)
+                        DBHelper.shared.updateUserName(userId: user.id, newName: updatedName)
                         loadUsers()
                         isEditingUser = false
                     })
@@ -95,7 +76,7 @@ struct SettingsView: View {
     }
     
     private func loadUsers() {
-        users = dbHelper.getUsersWithEmbeddingInfo()
+        users = DBHelper.shared.getUsersWithEmbeddingInfo()
     }
     
     
@@ -114,7 +95,8 @@ struct EditUserView: View {
     @State private var unassociatedEmbeddings: [(Int64, MLMultiArray, String)] = []
     @State private var averageEmbedding: MLMultiArray?
     @Environment(\.presentationMode) var presentationMode
-    let dbHelper = DBHelper()
+    // Remove this line:
+    // let dbHelper = DBHelper()
     
     init(user: User, onSave: @escaping (String) -> Void) {
         self.user = user
@@ -174,8 +156,8 @@ struct EditUserView: View {
     }
     
     private func loadEmbeddings() {
-        associatedEmbeddings = dbHelper.getAssociatedEmbeddings(for: user.id)
-        unassociatedEmbeddings = dbHelper.getUnassociatedEmbeddings()
+        associatedEmbeddings = DBHelper.shared.getAssociatedEmbeddings(for: user.id)
+        unassociatedEmbeddings = DBHelper.shared.getUnassociatedEmbeddings()
         calculateAverageEmbedding()
     }
     
@@ -226,7 +208,7 @@ struct EditUserView: View {
     }
     
     private func associateEmbedding(embeddingId: Int64, embedding: MLMultiArray) {
-        if dbHelper.associateEmbeddingWithUser(embeddingId: embeddingId, userId: user.id) {
+        if DBHelper.shared.associateEmbeddingWithUser(embeddingId: embeddingId, userId: user.id) {
             if let index = unassociatedEmbeddings.firstIndex(where: { $0.0 == embeddingId }) {
                 let associatedEmbedding = unassociatedEmbeddings.remove(at: index)
                 associatedEmbeddings.append(associatedEmbedding)
@@ -236,7 +218,7 @@ struct EditUserView: View {
     }
     
     private func unassociateEmbedding(embeddingId: Int64) {
-        if dbHelper.unassociateEmbeddingFromUser(embeddingId: embeddingId, userId: user.id) {
+        if DBHelper.shared.unassociateEmbeddingFromUser(embeddingId: embeddingId, userId: user.id) {
             if let index = associatedEmbeddings.firstIndex(where: { $0.0 == embeddingId }) {
                 let unassociatedEmbedding = associatedEmbeddings.remove(at: index)
                 unassociatedEmbeddings.append(unassociatedEmbedding)

@@ -51,9 +51,6 @@ struct MainView: View {
     @State private var averageFaceEmbedding: MLMultiArray?
     @State private var totalEmbeddings: Int = 0
 
-    // Create DBHelper instance once
-    private let dbHelper = DBHelper()
-
     // Add a new property for the EmbeddingIndex
     @State private var embeddingIndex: EmbeddingIndex?
     @State private var embeddingMatchLog: [(String, Float, UIImage?)] = []
@@ -209,7 +206,7 @@ struct MainView: View {
 
     private func resetDatabase() {
         // Clear the database
-        dbHelper.clearDatabase()
+        DBHelper.shared.clearDatabase()
 
         // Reset state variables
         faceEmbeddings = []
@@ -290,12 +287,12 @@ struct MainView: View {
         Task {
             do {
                 let capturedFaceImage = try await sessionCoordinator.captureFace()
-                if let fileName = dbHelper.saveFrameAsImage(capturedFaceImage),
+                if let fileName = DBHelper.shared.saveFrameAsImage(capturedFaceImage),
                    let averageEmbedding = averageFaceEmbedding {
                     let floatArray = convertToArray(averageEmbedding)
 
                     // Store the average embedding and filename in the database
-                    if let embeddingId = dbHelper.storeFaceEmbedding(averageEmbedding, filename: fileName) {
+                    if let embeddingId = DBHelper.shared.storeFaceEmbedding(averageEmbedding, filename: fileName) {
                         print("Stored average face embedding with ID: \(embeddingId)")
 
                         // Add the new embedding to the EmbeddingIndex
@@ -339,7 +336,7 @@ struct MainView: View {
         embeddingIndex = EmbeddingIndex(name: "FaceEmbeddings", dim: 512) // Assuming 512-dimensional embeddings
 
         // Load existing embeddings from the database
-        let embeddings = dbHelper.getAllFaceEmbeddings()
+        let embeddings = DBHelper.shared.getAllFaceEmbeddings()
         for (embedding, identifier) in embeddings {
             let floatArray = convertToArray(embedding)
             embeddingIndex?.add(vector: floatArray, localIdentifier: identifier)
@@ -354,7 +351,7 @@ struct MainView: View {
         userEmbeddingIndex?.clear()
 
         // Get all users with their average embeddings
-        let usersWithEmbeddings = dbHelper.getUsersWithAverageEmbeddings()
+        let usersWithEmbeddings = DBHelper.shared.getUsersWithAverageEmbeddings()
 
         // Add each user's average embedding to the index
         for (user, averageEmbedding) in usersWithEmbeddings {

@@ -4,11 +4,13 @@ import CoreML
 import UIKit
 
 class DBHelper {
+    static let shared = DBHelper()
+    
     var db: OpaquePointer?
     let databaseName = "helper.db"
     let lock = NSLock()
     
-    init() {
+    private init() {
         db = createDB()
         migrate()
     }
@@ -168,29 +170,64 @@ class DBHelper {
         return userId
     }
     
-    // New function to relate a user to an embedding
     func relateUserToEmbedding(userId: Int64, embeddingId: Int64) -> Bool {
-        let sql = "INSERT INTO user_interactions (user_id, embedding_id) VALUES (?, ?)"
-        var statement: OpaquePointer?
-        
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            print("Error preparing statement: \(String(cString: sqlite3_errmsg(db)!))")
-            return false
-        }
-        
-        sqlite3_bind_int64(statement, 1, userId)
-        sqlite3_bind_int64(statement, 2, embeddingId)
-        
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            print("Error relating user to embedding: \(String(cString: sqlite3_errmsg(db)!))")
+        var success = false
+        lock.withLock {
+            let sql = "INSERT INTO user_interactions (user_id, embedding_id) VALUES (?, ?)"
+            var statement: OpaquePointer?
+            
+            if sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil) != SQLITE_OK {
+                print("Error beginning transaction: \(String(cString: sqlite3_errmsg(db)!))")
+                return false
+            }
+            
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+                print("Error preparing statement: \(String(cString: sqlite3_errmsg(db)!))")
+                sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                return false
+            }
+            
+            sqlite3_bind_int64(statement, 1, userId)
+            sqlite3_bind_int64(statement, 2, embeddingId)
+            
+            if sqlite3_step(statement) == SQLITE_DONE {
+                success = true
+                print("Related user \(userId) to embedding \(embeddingId)")
+                
+                // Add this logging
+                let checkSql = "SELECT * FROM user_interactions WHERE user_id = ? AND embedding_id = ?"
+                var checkStatement: OpaquePointer?
+                if sqlite3_prepare_v2(db, checkSql, -1, &checkStatement, nil) == SQLITE_OK {
+                    sqlite3_bind_int64(checkStatement, 1, userId)
+                    sqlite3_bind_int64(checkStatement, 2, embeddingId)
+                    if sqlite3_step(checkStatement) == SQLITE_ROW {
+                        print("Verified: Relationship exists in database")
+                    } else {
+                        print("Warning: Relationship not found in database immediately after insertion")
+                    }
+                }
+                sqlite3_finalize(checkStatement)
+            } else {
+                print("Error relating user to embedding: \(String(cString: sqlite3_errmsg(db)!))")
+            }
+            
             sqlite3_finalize(statement)
-            return false
+            
+            if success {
+                if sqlite3_exec(db, "COMMIT", nil, nil, nil) != SQLITE_OK {
+                    print("Error committing transaction: \(String(cString: sqlite3_errmsg(db)!))")
+                    success = false
+                }
+            } else {
+                sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            }
+            print("Success: \(success)")
+            
+            return true
         }
-        
-        sqlite3_finalize(statement)
-        return true
+        sqlite3_db_cacheflush(db)
+        return success
     }
-    
     // New function to retrieve embeddings for a user
     func getEmbeddingsForUser(userId: Int64) -> [MLMultiArray] {
         let sql = """

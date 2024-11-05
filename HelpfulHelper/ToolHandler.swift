@@ -79,7 +79,7 @@ class ToolHandler {
               let argsJson = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] else {
             throw ToolHandlerError.invalidFunctionCall
         }
-
+        
         switch name {
         case "observe":
             return try await handleObserve(callId: callId, arguments: argsJson)
@@ -97,7 +97,7 @@ class ToolHandler {
               let query = arguments["query"] as? String else {
             throw ToolHandlerError.invalidArguments
         }
-
+        
         let imageData = try await cameraCoordinator.captureImage(from: camera)
         let imageDescription = try await callAnthropicAPI(imageData: imageData, query: query)
         
@@ -164,7 +164,7 @@ class ToolHandler {
         
         return text
     }
-}
+    
     private func handleWebSearch(callId: String, arguments: [String: Any]) async throws -> [String: Any] {
         guard let query = arguments["query"] as? String else {
             throw ToolHandlerError.invalidArguments
@@ -218,8 +218,7 @@ class ToolHandler {
             throw ToolHandlerError.invalidArguments
         }
         
-        let dbHelper = DBHelper()
-        let success = dbHelper.associateLastEmbeddingWithUser(userName: userName)
+        let success = DBHelper.shared.associateLastEmbeddingWithUser(userName: userName)
         
         let resultMessage = success ? "Successfully associated the last face with user: \(userName)" : "Failed to associate the last face with user: \(userName)"
         
@@ -232,6 +231,7 @@ class ToolHandler {
             ]
         ]
     }
+}
 
 enum ToolHandlerError: Error {
     case invalidFunctionCall
