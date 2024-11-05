@@ -357,8 +357,10 @@ struct MainView: View {
         for (user, averageEmbedding) in usersWithEmbeddings {
             let floatArray = convertToArray(averageEmbedding)
             userEmbeddingIndex.add(vector: floatArray, localIdentifier: user.name)
+            let search = userEmbeddingIndex.search(vector: floatArray, k: 1)
+            print("Found \(search.map(\.1)) for \(user.name)")
         }
-
+        
         print("Updated user embedding index with \(usersWithEmbeddings.count) users")
     }
 
@@ -366,6 +368,20 @@ struct MainView: View {
     private func matchFaceToUser(_ faceEmbedding: MLMultiArray) -> String? {
         updateUserEmbeddingIndex()
         print("Searching for a match...")
+
+        // Load the embeddings and compare them using cosine similarity
+        var best : String? = nil
+        var bestSimilarity = 0.0
+        let embeddings = DBHelper.shared.getAllFaceEmbeddings()
+        for (embedding, identifier) in embeddings {
+            let similarity = calculateCosineSimilarity(embedding1: faceEmbedding, embedding2: embedding)
+            if similarity > bestSimilarity {
+                best = identifier
+                bestSimilarity = similarity
+            }
+        }
+        print("Found \(best) with similarity \(bestSimilarity)")
+
         let floatArray = convertToArray(faceEmbedding)
         let searchResults = userEmbeddingIndex.search(vector: floatArray, k: 10)
         print("Found \(searchResults.map(\.1))")

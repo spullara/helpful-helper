@@ -96,8 +96,8 @@ struct EditUserView: View {
     let user: User
     let onSave: (String) -> Void
     @State private var editedName: String
-    @State private var associatedEmbeddings: [(Int64, MLMultiArray, String)] = []
-    @State private var unassociatedEmbeddings: [(Int64, MLMultiArray, String)] = []
+    @State private var associatedEmbeddings: [(Int64, MLMultiArray, String, Double)] = []
+    @State private var unassociatedEmbeddings: [(Int64, MLMultiArray, String, Double)] = []
     @State private var averageEmbedding: MLMultiArray?
     @Environment(\.dismiss) private var dismiss
     
@@ -116,13 +116,18 @@ struct EditUserView: View {
                 }
                 
                 Section(header: Text("Associated Embeddings")) {
-                    ForEach(associatedEmbeddings, id: \.0) { embeddingId, _, filename in
+                    ForEach(associatedEmbeddings, id: \.0) { embeddingId, _, filename, similarity in
                         HStack {
                             Image(uiImage: loadImage(filename: filename) ?? UIImage())
                                 .resizable()
                                 .scaledToFit()
                                 .frame(width: 50, height: 50)
-                            Text(filename)
+                            VStack(alignment: .leading) {
+                                Text(filename)
+                                Text("Similarity: \(similarity, specifier: "%.2f")")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
                             Spacer()
                             Button("Unassociate") {
                                 unassociateEmbedding(embeddingId: embeddingId)
@@ -132,13 +137,18 @@ struct EditUserView: View {
                 }
                 
                 Section(header: Text("Unassociated Embeddings")) {
-                    ForEach(unassociatedEmbeddings, id: \.0) { embeddingId, embedding, filename in
+                    ForEach(unassociatedEmbeddings, id: \.0) { embeddingId, embedding, filename, similarity in
                         HStack {
                             Image(uiImage: loadImage(filename: filename) ?? UIImage())
                                 .resizable()
                                 .scaledToFit()
                                 .frame(width: 50, height: 50)
-                            Text(filename)
+                            VStack(alignment: .leading) {
+                                Text(filename)
+                                Text("Similarity: \(similarity, specifier: "%.2f")")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
                             Spacer()
                             Button("Associate") {
                                 associateEmbedding(embeddingId: embeddingId, embedding: embedding)
@@ -160,63 +170,37 @@ struct EditUserView: View {
     }
     
     private func loadEmbeddings() {
-        associatedEmbeddings = DBHelper.shared.getAssociatedEmbeddings(for: user.id)
-        unassociatedEmbeddings = DBHelper.shared.getUnassociatedEmbeddings()
-        calculateAverageEmbedding()
-    }
-    
-    private func calculateAverageEmbedding() {
-        guard !associatedEmbeddings.isEmpty else {
-            averageEmbedding = nil
-            return
+        let associatedEmbeddingsRaw = DBHelper.shared.getAssociatedEmbeddings(for: user.id)
+        let unassociatedEmbeddingsRaw = DBHelper.shared.getUnassociatedEmbeddings()
+        averageEmbedding = averageEmbeddings(associatedEmbeddingsRaw.map(\.1))
+        
+        associatedEmbeddings = associatedEmbeddingsRaw.map { (id, embedding, filename) in
+            let similarity = calculateCosineSimilarity(embedding1: embedding, embedding2: averageEmbedding!)
+            return (id, embedding, filename, similarity)
         }
         
-        let embeddingSize = associatedEmbeddings[0].1.count
-        var averageValues = [Double](repeating: 0, count: embeddingSize)
-        
-        for (_, embedding, _) in associatedEmbeddings {
-            for i in 0..<embeddingSize {
-                averageValues[i] += embedding[i].doubleValue
+        unassociatedEmbeddings = unassociatedEmbeddingsRaw.map { (id, embedding, filename) in
+            if let avg = averageEmbedding {
+                let similarity = calculateCosineSimilarity(embedding1: embedding, embedding2: avg)
+                return (id, embedding, filename, similarity)
             }
-        }
-        
-        for i in 0..<embeddingSize {
-            averageValues[i] /= Double(associatedEmbeddings.count)
-        }
-        
-        averageEmbedding = try? MLMultiArray(shape: [embeddingSize as NSNumber], dataType: .double)
-        for i in 0..<embeddingSize {
-            averageEmbedding?[i] = NSNumber(value: averageValues[i])
+            return (id, embedding, filename, 0.0)
         }
         
         sortUnassociatedEmbeddings()
     }
     
     private func sortUnassociatedEmbeddings() {
-        guard let averageEmbedding = averageEmbedding else { return }
-        
-        unassociatedEmbeddings.sort { (embedding1, embedding2) in
-            let distance1 = calculateDistance(embedding1.1, averageEmbedding)
-            let distance2 = calculateDistance(embedding2.1, averageEmbedding)
-            return distance1 < distance2
-        }
-    }
-    
-    private func calculateDistance(_ embedding1: MLMultiArray, _ embedding2: MLMultiArray) -> Double {
-        var distance: Double = 0
-        for i in 0..<embedding1.count {
-            let diff = embedding1[i].doubleValue - embedding2[i].doubleValue
-            distance += diff * diff
-        }
-        return sqrt(distance)
+        unassociatedEmbeddings.sort { $0.3 > $1.3 }
     }
     
     private func associateEmbedding(embeddingId: Int64, embedding: MLMultiArray) {
-        if DBHelper.shared.associateEmbeddingWithUser(embeddingId: embeddingId, userId: user.id) {
+        if DBHelper.shared.relateUserToEmbedding(userId: user.id, embeddingId: embeddingId) {
             if let index = unassociatedEmbeddings.firstIndex(where: { $0.0 == embeddingId }) {
                 let associatedEmbedding = unassociatedEmbeddings.remove(at: index)
                 associatedEmbeddings.append(associatedEmbedding)
-                calculateAverageEmbedding()
+                averageEmbedding = averageEmbeddings(associatedEmbeddings.map { $0.1 })
+                loadEmbeddings()
             }
         }
     }
@@ -226,7 +210,8 @@ struct EditUserView: View {
             if let index = associatedEmbeddings.firstIndex(where: { $0.0 == embeddingId }) {
                 let unassociatedEmbedding = associatedEmbeddings.remove(at: index)
                 unassociatedEmbeddings.append(unassociatedEmbedding)
-                calculateAverageEmbedding()
+                averageEmbedding = averageEmbeddings(associatedEmbeddings.map { $0.1 })
+                loadEmbeddings()
             }
         }
     }
