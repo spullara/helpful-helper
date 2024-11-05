@@ -7,64 +7,75 @@ struct SettingsView: View {
     @State private var selectedUser: User?
     @State private var isEditingUser: Bool = false
     @Environment(\.presentationMode) var presentationMode
+    @FocusState private var isNewUserNameFocused: Bool
     
     let dbHelper = DBHelper()
     
     var body: some View {
         NavigationView {
-            List {
-                Section(header: Text("Create New User")) {
-                    HStack {
-                        TextField("New User Name", text: $newUserName)
-                        Button("Add") {
-                            if !newUserName.isEmpty {
-                                dbHelper.addUser(name: newUserName)
-                                loadUsers()
-                                newUserName = ""
-                                hideKeyboard()
-                            }
-                        }
+            ZStack {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        isNewUserNameFocused = false
                     }
-                }
                 
-                Section(header: Text("Existing Users")) {
-                    ForEach(users, id: \.0.id) { user, embeddingCount, closestFilename in
+                List {
+                    Section(header: Text("Create New User")) {
                         HStack {
-                            if let filename = closestFilename, let image = loadImage(filename: filename) {
-                                Image(uiImage: image)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 50, height: 50)
-                                    .cornerRadius(25)
-                            } else {
-                                Image(systemName: "person.circle")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 50, height: 50)
-                                    .foregroundColor(.gray)
+                            TextField("New User Name", text: $newUserName)
+                                .focused($isNewUserNameFocused)
+                            Button("Add") {
+                                if !newUserName.isEmpty {
+                                    dbHelper.addUser(name: newUserName)
+                                    loadUsers()
+                                    newUserName = ""
+                                    isNewUserNameFocused = false
+                                }
                             }
-                            
-                            VStack(alignment: .leading) {
-                                Text(user.name)
-                                Text("\(embeddingCount) embeddings")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            Button("Edit") {
-                                selectedUser = user
-                                isEditingUser = true
-                            }
-                            
-                            Button("Unassociate") {
-                                dbHelper.unassociateUserFromEmbeddings(userId: user.id)
-                                loadUsers()
+                        }
+                    }
+                    
+                    Section(header: Text("Existing Users")) {
+                        ForEach(users, id: \.0.id) { user, embeddingCount, closestFilename in
+                            HStack {
+                                if let filename = closestFilename, let image = loadImage(filename: filename) {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 50, height: 50)
+                                        .cornerRadius(25)
+                                } else {
+                                    Image(systemName: "person.circle")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 50, height: 50)
+                                        .foregroundColor(.gray)
+                                }
+                                
+                                VStack(alignment: .leading) {
+                                    Text(user.name)
+                                    Text("\(embeddingCount) embeddings")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Button("Edit") {
+                                    selectedUser = user
+                                    isEditingUser = true
+                                }
+                                
+                                Button("Unassociate") {
+                                    dbHelper.unassociateUserFromEmbeddings(userId: user.id)
+                                    loadUsers()
+                                }
                             }
                         }
                     }
                 }
+                .listStyle(InsetGroupedListStyle())
             }
             .navigationTitle("Settings")
             .navigationBarItems(trailing: Button("Done") {
@@ -80,12 +91,6 @@ struct SettingsView: View {
                     })
                 }
             }
-            .gesture(
-                TapGesture()
-                    .onEnded { _ in
-                        hideKeyboard()
-                    }
-            )
         }
     }
     
@@ -93,9 +98,6 @@ struct SettingsView: View {
         users = dbHelper.getUsersWithEmbeddingInfo()
     }
     
-    private func hideKeyboard() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-    }
     
     private func loadImage(filename: String) -> UIImage? {
         let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
