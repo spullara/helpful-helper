@@ -7,8 +7,29 @@ import CoreML
 import CoreFoundation
 import UIKit
 
-// MARK: - Content View
 struct ContentView: View {
+    @State private var selectedTab = 0
+    
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            MainView()
+                .tabItem {
+                    Image(systemName: "house")
+                    Text("Main")
+                }
+                .tag(0)
+            
+            SettingsView()
+                .tabItem {
+                    Image(systemName: "gear")
+                    Text("Settings")
+                }
+                .tag(1)
+        }
+    }
+}
+
+struct MainView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var isSessionActive = false
     @State private var transcripts: [String] = []
@@ -212,16 +233,16 @@ struct ContentView: View {
     private func resetDatabase() {
         // Clear the database
         dbHelper.clearDatabase()
-        
+
         // Reset state variables
         faceEmbeddings = []
         averageFaceEmbedding = nil
         totalEmbeddings = 0
         embeddingMatchLog = []
-        
+
         // Reinitialize the embedding index
         embeddingIndex = EmbeddingIndex(name: "FaceEmbeddings", dim: 512)
-        
+
         print("Database reset completed")
     }
 
@@ -350,7 +371,7 @@ struct ContentView: View {
             let floatArray = convertToArray(embedding)
             embeddingIndex?.add(vector: floatArray, localIdentifier: identifier)
         }
-        
+
         print("Loaded \(embeddings.count) face embeddings into the index")
     }
 }

@@ -293,6 +293,50 @@ class DBHelper {
         
         print("Database cleared")
     }
+    func getAllUsers() -> [User] {
+        var users: [User] = []
+        let query = "SELECT id, name FROM users"
+        var statement: OpaquePointer?
+        
+        if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let id = sqlite3_column_int64(statement, 0)
+                let name = String(cString: sqlite3_column_text(statement, 1))
+                users.append(User(id: id, name: name))
+            }
+        }
+        sqlite3_finalize(statement)
+        return users
+    }
+
+    func updateUserName(userId: Int64, newName: String) {
+        let query = "UPDATE users SET name = ? WHERE id = ?"
+        var statement: OpaquePointer?
+        
+        if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_text(statement, 1, (newName as NSString).utf8String, -1, nil)
+            sqlite3_bind_int64(statement, 2, userId)
+            
+            if sqlite3_step(statement) != SQLITE_DONE {
+                print("Error updating user name: \(String(cString: sqlite3_errmsg(db)!))")
+            }
+        }
+        sqlite3_finalize(statement)
+    }
+
+    func unassociateUserFromEmbeddings(userId: Int64) {
+        let query = "DELETE FROM user_interactions WHERE user_id = ?"
+        var statement: OpaquePointer?
+        
+        if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_int64(statement, 1, userId)
+            
+            if sqlite3_step(statement) != SQLITE_DONE {
+                print("Error unassociating user from embeddings: \(String(cString: sqlite3_errmsg(db)!))")
+            }
+        }
+        sqlite3_finalize(statement)
+    }
     func associateLastEmbeddingWithUser(userName: String) -> Bool {
         // Get the last face embedding
         let getLastEmbeddingSql = "SELECT id FROM face_embeddings ORDER BY date_created DESC LIMIT 1"
@@ -322,4 +366,92 @@ class DBHelper {
         // Associate the user with the embedding
         return relateUserToEmbedding(userId: userId, embeddingId: embeddingId)
     }
+    func getUnassociatedEmbeddings() -> [(Int64, MLMultiArray, String)] {
+        let sql = """
+            SELECT id, embedding, filename
+            FROM face_embeddings
+            WHERE id NOT IN (SELECT embedding_id FROM user_interactions)
+        """
+        var statement: OpaquePointer?
+        var embeddings: [(Int64, MLMultiArray, String)] = []
+        
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            print("Error preparing statement: \(String(cString: sqlite3_errmsg(db)!))")
+            return embeddings
+        }
+        
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let id = sqlite3_column_int64(statement, 0)
+            let blobPointer = sqlite3_column_blob(statement, 1)
+            let blobSize = sqlite3_column_bytes(statement, 1)
+            let filename = String(cString: sqlite3_column_text(statement, 2))
+            
+            if let blobPointer = blobPointer {
+                let data = Data(bytes: blobPointer, count: Int(blobSize))
+                if let embedding = try? MLMultiArray(data) {
+                    embeddings.append((id, embedding, filename))
+                }
+            }
+        }
+        
+        sqlite3_finalize(statement)
+        return embeddings
+    }
+
+    func getAssociatedEmbeddings(for userId: Int64) -> [(Int64, MLMultiArray, String)] {
+        let sql = """
+            SELECT fe.id, fe.embedding, fe.filename
+            FROM face_embeddings fe
+            JOIN user_interactions ui ON fe.id = ui.embedding_id
+            WHERE ui.user_id = ?
+        """
+        var statement: OpaquePointer?
+        var embeddings: [(Int64, MLMultiArray, String)] = []
+        
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            print("Error preparing statement: \(String(cString: sqlite3_errmsg(db)!))")
+            return embeddings
+        }
+        
+        sqlite3_bind_int64(statement, 1, userId)
+        
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let id = sqlite3_column_int64(statement, 0)
+            let blobPointer = sqlite3_column_blob(statement, 1)
+            let blobSize = sqlite3_column_bytes(statement, 1)
+            let filename = String(cString: sqlite3_column_text(statement, 2))
+            
+            if let blobPointer = blobPointer {
+                let data = Data(bytes: blobPointer, count: Int(blobSize))
+                if let embedding = try? MLMultiArray(data) {
+                    embeddings.append((id, embedding, filename))
+                }
+            }
+        }
+        
+        sqlite3_finalize(statement)
+        return embeddings
+    }
+
+    func associateEmbeddingWithUser(embeddingId: Int64, userId: Int64) -> Bool {
+        return relateUserToEmbedding(userId: userId, embeddingId: embeddingId)
+    }
+
+    func unassociateEmbeddingFromUser(embeddingId: Int64, userId: Int64) -> Bool {
+        let sql = "DELETE FROM user_interactions WHERE user_id = ? AND embedding_id = ?"
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            print("Error preparing statement: \(String(cString: sqlite3_errmsg(db)!))")
+            return false
+        }
+        
+        sqlite3_bind_int64(statement, 1, userId)
+        sqlite3_bind_int64(statement, 2, embeddingId)
+        
+        let result = sqlite3_step(statement) == SQLITE_DONE
+        sqlite3_finalize(statement)
+        return result
+    }
 }
+
