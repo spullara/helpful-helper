@@ -2,7 +2,7 @@ import SwiftUI
 import CoreML
 
 struct SettingsView: View {
-    @State private var users: [User] = []
+    @State private var users: [(User, Int, String?)] = []
     @State private var newUserName: String = ""
     @State private var selectedUser: User?
     @State private var isEditingUser: Bool = false
@@ -28,14 +28,36 @@ struct SettingsView: View {
                 }
                 
                 Section(header: Text("Existing Users")) {
-                    ForEach(users, id: \.id) { user in
+                    ForEach(users, id: \.0.id) { user, embeddingCount, closestFilename in
                         HStack {
-                            Text(user.name)
+                            if let filename = closestFilename, let image = loadImage(filename: filename) {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 50, height: 50)
+                                    .cornerRadius(25)
+                            } else {
+                                Image(systemName: "person.circle")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 50, height: 50)
+                                    .foregroundColor(.gray)
+                            }
+                            
+                            VStack(alignment: .leading) {
+                                Text(user.name)
+                                Text("\(embeddingCount) embeddings")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
                             Spacer()
+                            
                             Button("Edit") {
                                 selectedUser = user
                                 isEditingUser = true
                             }
+                            
                             Button("Unassociate") {
                                 dbHelper.unassociateUserFromEmbeddings(userId: user.id)
                                 loadUsers()
@@ -68,11 +90,17 @@ struct SettingsView: View {
     }
     
     private func loadUsers() {
-        users = dbHelper.getAllUsers()
+        users = dbHelper.getUsersWithEmbeddingInfo()
     }
     
     private func hideKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+    
+    private func loadImage(filename: String) -> UIImage? {
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let fileURL = documentsDirectory.appendingPathComponent(filename)
+        return UIImage(contentsOfFile: fileURL.path)
     }
 }
 

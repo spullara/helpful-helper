@@ -7,12 +7,12 @@ class DBHelper {
     var db: OpaquePointer?
     let databaseName = "helper.db"
     let lock = NSLock()
-
+    
     init() {
         db = createDB()
         migrate()
     }
-
+    
     func createDB() -> OpaquePointer? {
         lock.withLock {
             let filePath = try! FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
@@ -27,7 +27,7 @@ class DBHelper {
             }
         }
     }
-
+    
     func migrate() {
         // Create the version table if it doesn't exist
         execSQL(sql: """
@@ -35,7 +35,7 @@ class DBHelper {
                 version INTEGER
             )
         """)
-
+        
         // Get the version from the version table, defaulting to 0
         var version: Int32 = 0
         let query = "SELECT version FROM version"
@@ -46,15 +46,15 @@ class DBHelper {
             }
         }
         sqlite3_finalize(statement)
-
+        
         print("Database version: \(version)")
-
+        
         // If the version is 0, insert the initial version
         if version == 0 {
             execSQL(sql: "INSERT INTO version (version) VALUES (1)")
             print("Initialized database version to 1")
         }
-
+        
         // Add new migrations for the new tables
         if version < 2 {
             execSQL(sql: """
@@ -63,7 +63,7 @@ class DBHelper {
                     name TEXT NOT NULL
                 )
             """)
-
+            
             execSQL(sql: """
                 CREATE TABLE IF NOT EXISTS face_embeddings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,7 +71,7 @@ class DBHelper {
                     date_created DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-
+            
             execSQL(sql: """
                 CREATE TABLE IF NOT EXISTS user_interactions (
                     user_id INTEGER,
@@ -81,20 +81,20 @@ class DBHelper {
                     PRIMARY KEY (user_id, embedding_id)
                 )
             """)
-
+            
             updateVersion(newVersion: 2)
         }
-
+        
         if version < 3 {
             execSQL(sql: """
                 ALTER TABLE face_embeddings
                 ADD COLUMN filename TEXT
             """)
-
+            
             updateVersion(newVersion: 3)
         }
     }
-
+    
     private func execSQL(sql: String) {
         lock.withLock {
             if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
@@ -105,7 +105,7 @@ class DBHelper {
             }
         }
     }
-
+    
     private func updateVersion(newVersion: Int32) {
         let updateVersion = "UPDATE version SET version = \(newVersion)"
         var statement: OpaquePointer? = nil
@@ -119,7 +119,7 @@ class DBHelper {
         sqlite3_finalize(statement)
         print("Migrated to version: \(newVersion)")
     }
-
+    
     // New function to store a face embedding
     func storeFaceEmbedding(_ embedding: MLMultiArray, filename: String) -> Int64? {
         let sql = "INSERT INTO face_embeddings (embedding, filename) VALUES (?, ?)"
@@ -144,7 +144,7 @@ class DBHelper {
         sqlite3_finalize(statement)
         return embeddingId
     }
-
+    
     // New function to add a user
     func addUser(name: String) -> Int64? {
         let sql = "INSERT INTO users (name) VALUES (?)"
@@ -167,7 +167,7 @@ class DBHelper {
         sqlite3_finalize(statement)
         return userId
     }
-
+    
     // New function to relate a user to an embedding
     func relateUserToEmbedding(userId: Int64, embeddingId: Int64) -> Bool {
         let sql = "INSERT INTO user_interactions (user_id, embedding_id) VALUES (?, ?)"
@@ -190,7 +190,7 @@ class DBHelper {
         sqlite3_finalize(statement)
         return true
     }
-
+    
     // New function to retrieve embeddings for a user
     func getEmbeddingsForUser(userId: Int64) -> [MLMultiArray] {
         let sql = """
@@ -243,7 +243,7 @@ class DBHelper {
             return nil
         }
     }
-
+    
     func getAllFaceEmbeddings() -> [(MLMultiArray, String)] {
         let sql = "SELECT embedding, filename FROM face_embeddings"
         var statement: OpaquePointer?
@@ -270,7 +270,7 @@ class DBHelper {
         sqlite3_finalize(statement)
         return embeddings
     }
-
+    
     func clearDatabase() {
         let tables = ["face_embeddings", "user_interactions", "users"]
         
@@ -308,7 +308,7 @@ class DBHelper {
         sqlite3_finalize(statement)
         return users
     }
-
+    
     func updateUserName(userId: Int64, newName: String) {
         let query = "UPDATE users SET name = ? WHERE id = ?"
         var statement: OpaquePointer?
@@ -323,7 +323,7 @@ class DBHelper {
         }
         sqlite3_finalize(statement)
     }
-
+    
     func unassociateUserFromEmbeddings(userId: Int64) {
         let query = "DELETE FROM user_interactions WHERE user_id = ?"
         var statement: OpaquePointer?
@@ -397,7 +397,7 @@ class DBHelper {
         sqlite3_finalize(statement)
         return embeddings
     }
-
+    
     func getAssociatedEmbeddings(for userId: Int64) -> [(Int64, MLMultiArray, String)] {
         let sql = """
             SELECT fe.id, fe.embedding, fe.filename
@@ -432,11 +432,11 @@ class DBHelper {
         sqlite3_finalize(statement)
         return embeddings
     }
-
+    
     func associateEmbeddingWithUser(embeddingId: Int64, userId: Int64) -> Bool {
         return relateUserToEmbedding(userId: userId, embeddingId: embeddingId)
     }
-
+    
     func unassociateEmbeddingFromUser(embeddingId: Int64, userId: Int64) -> Bool {
         let sql = "DELETE FROM user_interactions WHERE user_id = ? AND embedding_id = ?"
         var statement: OpaquePointer?
@@ -452,6 +452,96 @@ class DBHelper {
         let result = sqlite3_step(statement) == SQLITE_DONE
         sqlite3_finalize(statement)
         return result
+    }
+    
+    func getUsersWithEmbeddingInfo() -> [(User, Int, String?)] {
+        var usersInfo: [(User, Int, String?)] = []
+        let query = """
+            SELECT u.id, u.name, COUNT(ui.embedding_id) as embedding_count
+            FROM users u
+            LEFT JOIN user_interactions ui ON u.id = ui.user_id
+            GROUP BY u.id
+        """
+        var statement: OpaquePointer?
+        
+        if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let id = sqlite3_column_int64(statement, 0)
+                let name = String(cString: sqlite3_column_text(statement, 1))
+                let embeddingCount = Int(sqlite3_column_int(statement, 2))
+                
+                // Get the average embedding and closest filename for this user
+                let closestFilename = getClosestEmbeddingFilename(userId: id)
+                
+                usersInfo.append((User(id: id, name: name), embeddingCount, closestFilename))
+            }
+        }
+        sqlite3_finalize(statement)
+        return usersInfo
+    }
+    
+    private func getClosestEmbeddingFilename(userId: Int64) -> String? {
+        let query = """
+            SELECT fe.embedding, fe.filename
+            FROM face_embeddings fe
+            JOIN user_interactions ui ON fe.id = ui.embedding_id
+            WHERE ui.user_id = ?
+        """
+        var statement: OpaquePointer?
+        var embeddings: [(MLMultiArray, String)] = []
+        
+        if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_int64(statement, 1, userId)
+            
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let blobPointer = sqlite3_column_blob(statement, 0)
+                let blobSize = sqlite3_column_bytes(statement, 0)
+                let filename = String(cString: sqlite3_column_text(statement, 1))
+                
+                if let blobPointer = blobPointer {
+                    let data = Data(bytes: blobPointer, count: Int(blobSize))
+                    if let embedding = try? MLMultiArray(data) {
+                        embeddings.append((embedding, filename))
+                    }
+                }
+            }
+        }
+        sqlite3_finalize(statement)
+        
+        // Calculate average embedding
+        guard !embeddings.isEmpty else { return nil }
+        
+        let embeddingSize = embeddings[0].0.count
+        var averageEmbedding = [Double](repeating: 0, count: embeddingSize)
+        
+        for (embedding, _) in embeddings {
+            for i in 0..<embeddingSize {
+                averageEmbedding[i] += embedding[i].doubleValue
+            }
+        }
+        
+        for i in 0..<embeddingSize {
+            averageEmbedding[i] /= Double(embeddings.count)
+        }
+        
+        // Find the closest embedding to the average
+        var closestDistance = Double.infinity
+        var closestFilename: String?
+        
+        for (embedding, filename) in embeddings {
+            var distance: Double = 0
+            for i in 0..<embeddingSize {
+                let diff = embedding[i].doubleValue - averageEmbedding[i]
+                distance += diff * diff
+            }
+            
+            if distance < closestDistance {
+                closestDistance = distance
+                closestFilename = filename
+            }
+        }
+        
+        return closestFilename
     }
 }
 
