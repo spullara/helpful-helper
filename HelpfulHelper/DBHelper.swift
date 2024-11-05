@@ -191,7 +191,7 @@ class DBHelper {
         sqlite3_finalize(statement)
         return true
     }
-        // New function to retrieve embeddings for a user
+    // New function to retrieve embeddings for a user
     func getEmbeddingsForUser(userId: Int64) -> [MLMultiArray] {
         let sql = """
             SELECT fe.embedding
@@ -489,7 +489,8 @@ class DBHelper {
             WHERE ui.user_id = ?
         """
         var statement: OpaquePointer?
-        var embeddings: [(MLMultiArray, String)] = []
+        var embeddings: [[Float]] = []
+        var filenames: [String] = []
         
         if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
             sqlite3_bind_int64(statement, 1, userId)
@@ -502,43 +503,26 @@ class DBHelper {
                 if let blobPointer = blobPointer {
                     let data = Data(bytes: blobPointer, count: Int(blobSize))
                     if let embedding = try? MLMultiArray(data) {
-                        embeddings.append((embedding, filename))
+                        let floatArray = (0..<embedding.count).map { embedding[$0].floatValue }
+                        embeddings.append(floatArray)
+                        filenames.append(filename)
                     }
                 }
             }
         }
         sqlite3_finalize(statement)
         
-        // Calculate average embedding
-        guard !embeddings.isEmpty else { return nil }
-        
-        let embeddingSize = embeddings[0].0.count
-        var averageEmbedding = [Double](repeating: 0, count: embeddingSize)
-        
-        for (embedding, _) in embeddings {
-            for i in 0..<embeddingSize {
-                averageEmbedding[i] += embedding[i].doubleValue
-            }
-        }
-        
-        for i in 0..<embeddingSize {
-            averageEmbedding[i] /= Double(embeddings.count)
-        }
+        guard let averageEmbedding = averageEmbeddings(embeddings) else { return nil }
         
         // Find the closest embedding to the average
-        var closestDistance = Double.infinity
+        var closestDistance = Float.infinity
         var closestFilename: String?
         
-        for (embedding, filename) in embeddings {
-            var distance: Double = 0
-            for i in 0..<embeddingSize {
-                let diff = embedding[i].doubleValue - averageEmbedding[i]
-                distance += diff * diff
-            }
-            
+        for (index, embedding) in embeddings.enumerated() {
+            let distance = zip(embedding, averageEmbedding).map { pow($0 - $1, 2) }.reduce(0, +)
             if distance < closestDistance {
                 closestDistance = distance
-                closestFilename = filename
+                closestFilename = filenames[index]
             }
         }
         
@@ -548,17 +532,20 @@ class DBHelper {
     func getUsersWithAverageEmbeddings() -> [(User, MLMultiArray)] {
         var usersWithEmbeddings: [(User, MLMultiArray)] = []
         let query = """
-            SELECT u.id, u.name, AVG(fe.embedding) as avg_embedding
+            SELECT u.id, u.name, fe.embedding
             FROM users u
             JOIN user_interactions ui ON u.id = ui.user_id
             JOIN face_embeddings fe ON ui.embedding_id = fe.id
-            GROUP BY u.id
         """
         var statement: OpaquePointer?
         
         if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            var currentUserId: Int64 = -1
+            var currentUserName: String = ""
+            var currentUserEmbeddings: [[Float]] = []
+            
             while sqlite3_step(statement) == SQLITE_ROW {
-                let id = sqlite3_column_int64(statement, 0)
+                let userId = sqlite3_column_int64(statement, 0)
                 let name = String(cString: sqlite3_column_text(statement, 1))
                 let blobPointer = sqlite3_column_blob(statement, 2)
                 let blobSize = sqlite3_column_bytes(statement, 2)
@@ -566,8 +553,34 @@ class DBHelper {
                 if let blobPointer = blobPointer {
                     let data = Data(bytes: blobPointer, count: Int(blobSize))
                     if let embedding = try? MLMultiArray(data) {
-                        let user = User(id: id, name: name)
-                        usersWithEmbeddings.append((user, embedding))
+                        let floatArray = (0..<embedding.count).map { embedding[$0].floatValue }
+                        
+                        if userId != currentUserId {
+                            if currentUserId != -1 {
+                                if let avgEmbedding = averageEmbeddings(currentUserEmbeddings) {
+                                    let mlMultiArray = try? MLMultiArray(shape: [NSNumber(value: avgEmbedding.count)], dataType: .float32)
+                                    avgEmbedding.enumerated().forEach { mlMultiArray?[$0.offset] = NSNumber(value: $0.element) }
+                                    if let mlMultiArray = mlMultiArray {
+                                        usersWithEmbeddings.append((User(id: currentUserId, name: currentUserName), mlMultiArray))
+                                    }
+                                }
+                            }
+                            currentUserId = userId
+                            currentUserName = name
+                            currentUserEmbeddings = []
+                        }
+                        currentUserEmbeddings.append(floatArray)
+                    }
+                }
+            }
+            
+            // Handle the last user
+            if currentUserId != -1 {
+                if let avgEmbedding = averageEmbeddings(currentUserEmbeddings) {
+                    let mlMultiArray = try? MLMultiArray(shape: [NSNumber(value: avgEmbedding.count)], dataType: .float32)
+                    avgEmbedding.enumerated().forEach { mlMultiArray?[$0.offset] = NSNumber(value: $0.element) }
+                    if let mlMultiArray = mlMultiArray {
+                        usersWithEmbeddings.append((User(id: currentUserId, name: currentUserName), mlMultiArray))
                     }
                 }
             }
@@ -577,3 +590,21 @@ class DBHelper {
     }
 
 }
+    private func averageEmbeddings(_ embeddings: [[Float]]) -> [Float]? {
+        guard !embeddings.isEmpty else { return nil }
+        
+        let embeddingSize = embeddings[0].count
+        var averageEmbedding = [Float](repeating: 0, count: embeddingSize)
+        
+        for embedding in embeddings {
+            for i in 0..<embeddingSize {
+                averageEmbedding[i] += embedding[i]
+            }
+        }
+        
+        for i in 0..<embeddingSize {
+            averageEmbedding[i] /= Float(embeddings.count)
+        }
+        
+        return averageEmbedding
+    }

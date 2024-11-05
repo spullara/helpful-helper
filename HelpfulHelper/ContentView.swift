@@ -367,11 +367,12 @@ struct MainView: View {
         updateUserEmbeddingIndex()
         print("Searching for a match...")
         let floatArray = convertToArray(faceEmbedding)
-        let searchResults = userEmbeddingIndex.search(vector: floatArray, k: 1)
+        let searchResults = userEmbeddingIndex.search(vector: floatArray, k: 10)
+        print("Found \(searchResults.map(\.1))")
         if let topMatch = searchResults.first {
             let userName = userEmbeddingIndex.getLocalIdentifier(topMatch.0)
             let similarity = topMatch.1
-            print("Matched face to user: \(userName ?? "Unknown"), similarity: \(similarity)")
+            print("Matched face to user: \(userName), similarity: \(similarity)")
             return userName
         }
         return nil

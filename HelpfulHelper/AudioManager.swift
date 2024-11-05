@@ -238,9 +238,9 @@ class AudioManager {
         guard isPlaying else { return }
         
         logActivity("Stopping playback...")
-//        playerNode.stop()
-//        engine.stop()
-//        isPlaying = false
+        playerNode.stop()
+        engine.stop()
+        isPlaying = false
         logActivity("Playback stopped")
     }
     
