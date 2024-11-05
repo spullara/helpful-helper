@@ -6,8 +6,8 @@ struct SettingsView: View {
     @State private var newUserName: String = ""
     @State private var selectedUser: User?
     @State private var isEditingUser: Bool = false
-    @Environment(\.presentationMode) var presentationMode
     @FocusState private var isNewUserNameFocused: Bool
+    @State private var showUnassociateConfirmation = false
     
     var body: some View {
         NavigationView {
@@ -37,6 +37,13 @@ struct SettingsView: View {
                     Section(header: Text("Users")) {
                         ForEach(users, id: \.0.id) { user, embeddingCount, closestFilename in
                             HStack {
+                                if let closestFilename = closestFilename {
+                                    Image(uiImage: loadImage(filename: closestFilename) ?? UIImage())
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 50, height: 50)
+                                }
+
                                 VStack(alignment: .leading) {
                                     Text(user.name)
                                     Text("Embeddings: \(embeddingCount)")
@@ -47,14 +54,14 @@ struct SettingsView: View {
                                 Spacer()
                                 
                                 Button("Edit") {
+                                    print("Edit user: \(user.name)")
                                     selectedUser = user
-                                    isEditingUser = true
                                 }
                                 
                                 Button("Unassociate") {
                                     DBHelper.shared.unassociateUserFromEmbeddings(userId: user.id)
                                     loadUsers()
-                                }
+                                }.buttonStyle(BorderlessButtonStyle())
                             }
                         }
                     }
@@ -63,14 +70,12 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .onAppear(perform: loadUsers)
-            .sheet(isPresented: $isEditingUser) {
-                if let user = selectedUser {
-                    EditUserView(user: user, onSave: { updatedName in
-                        DBHelper.shared.updateUserName(userId: user.id, newName: updatedName)
-                        loadUsers()
-                        isEditingUser = false
-                    })
-                }
+            .sheet(item: $selectedUser) { user in
+                EditUserView(user: user, onSave: { updatedName in
+                    print("Saving")
+                    DBHelper.shared.updateUserName(userId: user.id, newName: updatedName)
+                    loadUsers()
+                })
             }
         }
     }
@@ -94,14 +99,13 @@ struct EditUserView: View {
     @State private var associatedEmbeddings: [(Int64, MLMultiArray, String)] = []
     @State private var unassociatedEmbeddings: [(Int64, MLMultiArray, String)] = []
     @State private var averageEmbedding: MLMultiArray?
-    @Environment(\.presentationMode) var presentationMode
-    // Remove this line:
-    // let dbHelper = DBHelper()
+    @Environment(\.dismiss) private var dismiss
     
     init(user: User, onSave: @escaping (String) -> Void) {
         self.user = user
         self.onSave = onSave
         _editedName = State(initialValue: user.name)
+        print("EditUserView initialized for user: \(user.name)")
     }
     
     var body: some View {
@@ -145,10 +149,10 @@ struct EditUserView: View {
             }
             .navigationTitle("Edit User")
             .navigationBarItems(
-                leading: Button("Cancel") { presentationMode.wrappedValue.dismiss() },
+                leading: Button("Cancel") { dismiss() },
                 trailing: Button("Save") {
                     onSave(editedName)
-                    presentationMode.wrappedValue.dismiss()
+                    dismiss()
                 }
             )
             .onAppear(perform: loadEmbeddings)

@@ -270,7 +270,6 @@ class CameraSessionCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate
     
     // Modified capture function to use cached frame
     func captureImage(from camera: String) async throws -> Data {
-        print("Attempting to capture image from \(camera) camera")
         return try await withCheckedThrowingContinuation { continuation in
             frameBufferLock.lock()
             defer { frameBufferLock.unlock() }

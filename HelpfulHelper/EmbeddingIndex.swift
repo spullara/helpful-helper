@@ -49,6 +49,7 @@ class EmbeddingIndex {
     }
 
     func search(vector: [Float], k: Int) -> [(Int, Float)] {
+        print("Searching index")
         let result: Vec_SearchResult_t = bfes_search(indexName(name), k, vector, dim);
         var resultArray = [(Int, Float)]()
         for i in 0..<result.len {

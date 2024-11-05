@@ -52,11 +52,11 @@ struct MainView: View {
     @State private var totalEmbeddings: Int = 0
 
     // Add a new property for the EmbeddingIndex
-    @State private var embeddingIndex: EmbeddingIndex?
+    @State private var embeddingIndex = EmbeddingIndex(name: "FaceEmbeddings", dim: 2048)
     @State private var embeddingMatchLog: [(String, Float, UIImage?)] = []
 
     // Add a new property for the user embedding index
-    @State private var userEmbeddingIndex: EmbeddingIndex?
+    @State private var userEmbeddingIndex = EmbeddingIndex(name: "UserEmbeddings", dim: 2048)
 
     // Add a new state variable for the probable user
     @State private var probableUser: String = "Unknown"
@@ -296,7 +296,7 @@ struct MainView: View {
                         print("Stored average face embedding with ID: \(embeddingId)")
 
                         // Add the new embedding to the EmbeddingIndex
-                        embeddingIndex?.add(vector: floatArray, localIdentifier: fileName)
+                        embeddingIndex.add(vector: floatArray, localIdentifier: fileName)
                         print("Added new embedding to the index")
                     }
 
@@ -339,7 +339,7 @@ struct MainView: View {
         let embeddings = DBHelper.shared.getAllFaceEmbeddings()
         for (embedding, identifier) in embeddings {
             let floatArray = convertToArray(embedding)
-            embeddingIndex?.add(vector: floatArray, localIdentifier: identifier)
+            embeddingIndex.add(vector: floatArray, localIdentifier: identifier)
         }
 
         print("Loaded \(embeddings.count) face embeddings into the index")
@@ -348,7 +348,7 @@ struct MainView: View {
     // Add a new function to update the user embedding index
     private func updateUserEmbeddingIndex() {
         // Clear the existing index
-        userEmbeddingIndex?.clear()
+        userEmbeddingIndex.clear()
 
         // Get all users with their average embeddings
         let usersWithEmbeddings = DBHelper.shared.getUsersWithAverageEmbeddings()
@@ -356,7 +356,7 @@ struct MainView: View {
         // Add each user's average embedding to the index
         for (user, averageEmbedding) in usersWithEmbeddings {
             let floatArray = convertToArray(averageEmbedding)
-            userEmbeddingIndex?.add(vector: floatArray, localIdentifier: user.name)
+            userEmbeddingIndex.add(vector: floatArray, localIdentifier: user.name)
         }
 
         print("Updated user embedding index with \(usersWithEmbeddings.count) users")
@@ -364,10 +364,12 @@ struct MainView: View {
 
     // Add a function to match a face to a user name
     private func matchFaceToUser(_ faceEmbedding: MLMultiArray) -> String? {
+        updateUserEmbeddingIndex()
+        print("Searching for a match...")
         let floatArray = convertToArray(faceEmbedding)
-        if let searchResults = userEmbeddingIndex?.search(vector: floatArray, k: 1),
-           let topMatch = searchResults.first {
-            let userName = userEmbeddingIndex?.getLocalIdentifier(topMatch.0)
+        let searchResults = userEmbeddingIndex.search(vector: floatArray, k: 1)
+        if let topMatch = searchResults.first {
+            let userName = userEmbeddingIndex.getLocalIdentifier(topMatch.0)
             let similarity = topMatch.1
             print("Matched face to user: \(userName ?? "Unknown"), similarity: \(similarity)")
             return userName
