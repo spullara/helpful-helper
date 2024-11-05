@@ -543,5 +543,36 @@ class DBHelper {
         
         return closestFilename
     }
-}
 
+    func getUsersWithAverageEmbeddings() -> [(User, MLMultiArray)] {
+        var usersWithEmbeddings: [(User, MLMultiArray)] = []
+        let query = """
+            SELECT u.id, u.name, AVG(fe.embedding) as avg_embedding
+            FROM users u
+            JOIN user_interactions ui ON u.id = ui.user_id
+            JOIN face_embeddings fe ON ui.embedding_id = fe.id
+            GROUP BY u.id
+        """
+        var statement: OpaquePointer?
+        
+        if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let id = sqlite3_column_int64(statement, 0)
+                let name = String(cString: sqlite3_column_text(statement, 1))
+                let blobPointer = sqlite3_column_blob(statement, 2)
+                let blobSize = sqlite3_column_bytes(statement, 2)
+                
+                if let blobPointer = blobPointer {
+                    let data = Data(bytes: blobPointer, count: Int(blobSize))
+                    if let embedding = try? MLMultiArray(data) {
+                        let user = User(id: id, name: name)
+                        usersWithEmbeddings.append((user, embedding))
+                    }
+                }
+            }
+        }
+        sqlite3_finalize(statement)
+        return usersWithEmbeddings
+    }
+
+}

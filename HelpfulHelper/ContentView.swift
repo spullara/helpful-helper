@@ -9,7 +9,12 @@ import UIKit
 
 struct ContentView: View {
     @State private var selectedTab = 0
-    
+    @State private var userEmbeddingIndex: EmbeddingIndex?
+
+    init() {
+        _userEmbeddingIndex = State(initialValue: EmbeddingIndex(name: "UserEmbeddings", dim: 512))
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             MainView()
@@ -18,7 +23,7 @@ struct ContentView: View {
                     Text("Main")
                 }
                 .tag(0)
-            
+
             SettingsView()
                 .tabItem {
                     Image(systemName: "gear")
@@ -52,6 +57,9 @@ struct MainView: View {
     // Add a new property for the EmbeddingIndex
     @State private var embeddingIndex: EmbeddingIndex?
     @State private var embeddingMatchLog: [(String, Float, UIImage?)] = []
+    
+    // Add a new property for the user embedding index
+    @State private var userEmbeddingIndex: EmbeddingIndex?
 
     init() {
         let cameraCoordinator = CameraSessionCoordinator()
@@ -241,7 +249,7 @@ struct MainView: View {
         embeddingMatchLog = []
 
         // Reinitialize the embedding index
-        embeddingIndex = EmbeddingIndex(name: "FaceEmbeddings", dim: 512)
+        embeddingIndex = EmbeddingIndex(name: "FaceEmbeddings", dim: 2048)
 
         print("Database reset completed")
     }
@@ -373,6 +381,36 @@ struct MainView: View {
         }
 
         print("Loaded \(embeddings.count) face embeddings into the index")
+    }
+
+    // Add a new function to update the user embedding index
+    private func updateUserEmbeddingIndex() {
+        // Clear the existing index
+        userEmbeddingIndex?.clear()
+
+        // Get all users with their average embeddings
+        let usersWithEmbeddings = dbHelper.getUsersWithAverageEmbeddings()
+
+        // Add each user's average embedding to the index
+        for (user, averageEmbedding) in usersWithEmbeddings {
+            let floatArray = convertToArray(averageEmbedding)
+            userEmbeddingIndex?.add(vector: floatArray, localIdentifier: user.name)
+        }
+
+        print("Updated user embedding index with \(usersWithEmbeddings.count) users")
+    }
+
+    // Add a function to match a face to a user name
+    private func matchFaceToUser(_ faceEmbedding: MLMultiArray) -> String? {
+        let floatArray = convertToArray(faceEmbedding)
+        if let searchResults = userEmbeddingIndex?.search(vector: floatArray, k: 1),
+           let topMatch = searchResults.first {
+            let userName = userEmbeddingIndex?.getLocalIdentifier(topMatch.0)
+            let similarity = topMatch.1
+            print("Matched face to user: \(userName ?? "Unknown"), similarity: \(similarity)")
+            return userName
+        }
+        return nil
     }
 }
 
