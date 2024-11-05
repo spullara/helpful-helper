@@ -57,9 +57,12 @@ struct MainView: View {
     // Add a new property for the EmbeddingIndex
     @State private var embeddingIndex: EmbeddingIndex?
     @State private var embeddingMatchLog: [(String, Float, UIImage?)] = []
-    
+
     // Add a new property for the user embedding index
     @State private var userEmbeddingIndex: EmbeddingIndex?
+
+    // Add a new state variable for the probable user
+    @State private var probableUser: String = "Unknown"
 
     init() {
         let cameraCoordinator = CameraSessionCoordinator()
@@ -165,45 +168,11 @@ struct MainView: View {
                     Text("Speaking: \(audioCoordinator.averageSpeakingConfidence, specifier: "%.2f")")
                     Text("Looking: \(audioCoordinator.averageLookingAtCameraConfidence, specifier: "%.2f")")
                     Text("Total Embeddings: \(totalEmbeddings)")
+                    Text("Probable User: \(probableUser)")
                 }
                 .padding()
                 .background(Color.gray.opacity(0.1))
                 .cornerRadius(12)
-
-                // New Embedding Match Log
-                VStack {
-                    Text("Embedding Match Log")
-                        .font(.headline)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 10) {
-                        ForEach(embeddingMatchLog, id: \.0) { match in
-                            ZStack(alignment: .bottom) {
-                                if let image = match.2 {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .frame(width: (geometry.size.width - 50) / 4, height: (geometry.size.width - 50) / 4)
-                                        .clipped()
-                                        .cornerRadius(8)
-                                } else {
-                                    Rectangle()
-                                        .fill(Color.gray)
-                                        .frame(width: (geometry.size.width - 50) / 4, height: (geometry.size.width - 50) / 4)
-                                        .cornerRadius(8)
-                                }
-                                Text(String(format: "%.4f", match.1))
-                                    .font(.caption)
-                                    .padding(4)
-                                    .background(Color.black.opacity(0.6))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(4)
-                            }
-                        }
-                    }
-                    .frame(height: ((geometry.size.width - 50) / 4) * 2.5) // Adjust height as needed
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(12)
-                }
-                .padding()
             }
             .padding()
 
@@ -334,14 +303,10 @@ struct MainView: View {
                         print("Added new embedding to the index")
                     }
 
-                    // Search for similar embeddings before adding
-                    if let searchResults = embeddingIndex?.search(vector: floatArray, k: 10) {
+                    // Match the face to a user
+                    if let matchedUser = matchFaceToUser(averageEmbedding) {
                         DispatchQueue.main.async {
-                            self.embeddingMatchLog = searchResults.map { result in
-                                let identifier = embeddingIndex?.getLocalIdentifier(result.0) ?? "Unknown"
-                                let image = self.loadImage(for: identifier)
-                                return (identifier, result.1, image)
-                            }
+                            self.probableUser = matchedUser
                         }
                     }
                 }
