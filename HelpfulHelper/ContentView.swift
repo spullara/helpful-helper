@@ -265,23 +265,7 @@ struct MainView: View {
     private func calculateAverageFaceEmbedding() {
         guard !faceEmbeddings.isEmpty else { return }
 
-        let embeddingSize = faceEmbeddings[0].count
-        var averageEmbedding = [Double](repeating: 0, count: embeddingSize)
-
-        for embedding in faceEmbeddings {
-            for i in 0..<embeddingSize {
-                averageEmbedding[i] += embedding[i].doubleValue
-            }
-        }
-
-        for i in 0..<embeddingSize {
-            averageEmbedding[i] /= Double(faceEmbeddings.count)
-        }
-
-        averageFaceEmbedding = try? MLMultiArray(shape: [embeddingSize as NSNumber], dataType: .double)
-        for i in 0..<embeddingSize {
-            averageFaceEmbedding?[i] = NSNumber(value: averageEmbedding[i])
-        }
+        averageFaceEmbedding = averageEmbeddings(faceEmbeddings)
 
         // Use captureFace instead of getLatestFrame
         Task {

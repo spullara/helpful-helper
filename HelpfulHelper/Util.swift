@@ -23,6 +23,8 @@ func calculateCosineSimilarity(embedding1: MLMultiArray, embedding2: MLMultiArra
     magnitude1 = sqrt(magnitude1)
     magnitude2 = sqrt(magnitude2)
     
+    print("Magnitude 1: \(magnitude1) Magnitude 2: \(magnitude2) Dot Product: \(dotProduct)")
+
     return dotProduct / (magnitude1 * magnitude2)
 }
 
@@ -47,6 +49,11 @@ func averageEmbeddings(_ embeddings: [MLMultiArray]) -> MLMultiArray? {
         mlMultiArray?[i] = NSNumber(value: averageValues[i])
     }
     
+    // Normalize the average embedding
+    if let normalizedEmbedding = mlMultiArray {
+        return normalizeEmbedding(normalizedEmbedding)
+    }
+    
     return mlMultiArray
 }
 
@@ -67,3 +74,17 @@ func findClosestEmbedding(target: MLMultiArray, embeddings: [(MLMultiArray, Stri
     return closestFilename
 }
 
+func normalizeEmbedding(_ embedding: MLMultiArray) -> MLMultiArray {
+    var norm: Double = 0.0
+    for i in 0..<embedding.count {
+        let value = embedding[i].doubleValue
+        norm += value * value
+    }
+    let norm_sqrt = sqrt(norm)
+    
+    let normalizedEmbedding = try! MLMultiArray(shape: embedding.shape, dataType: .double)
+    for i in 0..<embedding.count {
+        normalizedEmbedding[i] = NSNumber(value: embedding[i].doubleValue / norm_sqrt)
+    }
+    return normalizedEmbedding
+}

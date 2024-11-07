@@ -41,7 +41,7 @@ class DBHelper {
         // Get the version from the version table, defaulting to 0
         var version: Int32 = 0
         let query = "SELECT version FROM version"
-        var statement: OpaquePointer? = nil
+        var statement: OpaquePointer?
         if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
             if sqlite3_step(statement) == SQLITE_ROW {
                 version = sqlite3_column_int(statement, 0)
@@ -110,7 +110,7 @@ class DBHelper {
     
     private func updateVersion(newVersion: Int32) {
         let updateVersion = "UPDATE version SET version = \(newVersion)"
-        var statement: OpaquePointer? = nil
+        var statement: OpaquePointer?
         if sqlite3_prepare_v2(db, updateVersion, -1, &statement, nil) == SQLITE_OK {
             if sqlite3_step(statement) == SQLITE_DONE {
                 print("Successfully updated version to \(newVersion)")
@@ -127,12 +127,14 @@ class DBHelper {
         let sql = "INSERT INTO face_embeddings (embedding, filename) VALUES (?, ?)"
         var statement: OpaquePointer?
         
+        print("Original embedding data type: \(embedding.dataType), rawValue: \(embedding.dataType.rawValue)")
+
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             print("Error preparing statement: \(String(cString: sqlite3_errmsg(db)!))")
             return nil
         }
         
-        let data = Data(bytes: embedding.dataPointer, count: embedding.count * MemoryLayout<Float>.size)
+        let data = Data(bytes: embedding.dataPointer, count: embedding.count * MemoryLayout<Double>.size)
         sqlite3_bind_blob(statement, 1, (data as NSData).bytes, Int32(data.count), nil)
         sqlite3_bind_text(statement, 2, (filename as NSString).utf8String, -1, nil)
         
@@ -144,9 +146,88 @@ class DBHelper {
         
         let embeddingId = sqlite3_last_insert_rowid(db)
         sqlite3_finalize(statement)
+        
+        // Reload the embedding from the database
+        if let reloadedEmbedding = getEmbeddingById(embeddingId) {
+            // Calculate MSE
+            print("Original embedding: \(embedding)")
+            print("Reloaded embedding: \(reloadedEmbedding)")
+        
+            let mse = calculateMSE(original: embedding, reloaded: reloadedEmbedding)
+            print("Mean Square Error between original and reloaded embedding: \(mse)")
+        } else {
+            print("Failed to reload embedding for MSE calculation")
+        }
+        
         return embeddingId
     }
     
+    // Helper function to get embedding by ID
+    private func getEmbeddingById(_ id: Int64) -> MLMultiArray? {
+        let sql = "SELECT embedding FROM face_embeddings WHERE id = ?"
+        var statement: OpaquePointer?
+        
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            print("Error preparing statement: \(String(cString: sqlite3_errmsg(db)!))")
+            return nil
+        }
+        
+        sqlite3_bind_int64(statement, 1, id)
+        
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            print("Error fetching embedding: \(String(cString: sqlite3_errmsg(db)!))")
+            sqlite3_finalize(statement)
+            return nil
+        }
+        
+        let blobPointer = sqlite3_column_blob(statement, 0)
+        let blobSize = sqlite3_column_bytes(statement, 0)
+        
+        guard let blobPointer = blobPointer else {
+            print("Error: blob is nil")
+            sqlite3_finalize(statement)
+            return nil
+        }
+        
+        let data = Data(bytes: blobPointer, count: Int(blobSize))
+        sqlite3_finalize(statement)
+        
+        // Determine the correct shape and size
+        let elementSize = MemoryLayout<Double>.size
+        let count = data.count / elementSize
+        let shape = [NSNumber(value: count)]
+        
+        // Create the MLMultiArray with the correct shape and data type
+        do {
+            let mlArray = try MLMultiArray(shape: shape, dataType: .double)
+            
+            data.withUnsafeBytes { (bufferPointer: UnsafeRawBufferPointer) in
+                guard let baseAddress = bufferPointer.baseAddress else {
+                    print("Error: couldn't get base address")
+                    return
+                }
+                mlArray.dataPointer.copyMemory(from: baseAddress, byteCount: data.count)
+            }
+            
+            return mlArray
+        } catch {
+            print("Error creating MLMultiArray: \(error)")
+            return nil
+        }
+    }
+    // Helper function to calculate Mean Square Error
+    private func calculateMSE(original: MLMultiArray, reloaded: MLMultiArray) -> Double {
+        var sumSquaredDiff: Double = 0
+        let count = original.count
+        
+        for i in 0..<count {
+            let diff = original[i].doubleValue - reloaded[i].doubleValue
+            sumSquaredDiff += diff * diff
+        }
+        
+        return sumSquaredDiff / Double(count)
+    }
+
     // New function to add a user
     func addUser(name: String) -> Int64? {
         let sql = "INSERT INTO users (name) VALUES (?)"

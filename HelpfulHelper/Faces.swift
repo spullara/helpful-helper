@@ -56,7 +56,8 @@ class Faces {
                   let embedding = results.first?.featureValue.multiArrayValue else {
                 return nil
             }
-            return embedding
+            // Normalize the embedding to unit length
+            return normalizeEmbedding(embedding)
         } catch {
             print("Failed to get face embedding: \(error)")
             return nil
