@@ -192,21 +192,23 @@ class DBHelper {
         let data = Data(bytes: blobPointer, count: Int(blobSize))
         sqlite3_finalize(statement)
         
-        // Determine the correct shape and size
+        return blobToMLMultiArray(data)
+    }
+    
+    private func blobToMLMultiArray(_ blob: Data) -> MLMultiArray? {
         let elementSize = MemoryLayout<Double>.size
-        let count = data.count / elementSize
+        let count = blob.count / elementSize
         let shape = [NSNumber(value: count)]
         
-        // Create the MLMultiArray with the correct shape and data type
         do {
             let mlArray = try MLMultiArray(shape: shape, dataType: .double)
             
-            data.withUnsafeBytes { (bufferPointer: UnsafeRawBufferPointer) in
+            blob.withUnsafeBytes { (bufferPointer: UnsafeRawBufferPointer) in
                 guard let baseAddress = bufferPointer.baseAddress else {
                     print("Error: couldn't get base address")
                     return
                 }
-                mlArray.dataPointer.copyMemory(from: baseAddress, byteCount: data.count)
+                mlArray.dataPointer.copyMemory(from: baseAddress, byteCount: blob.count)
             }
             
             return mlArray
@@ -297,7 +299,7 @@ class DBHelper {
             
             if let blobPointer = blobPointer {
                 let data = Data(bytes: blobPointer, count: Int(blobSize))
-                if let embedding = try? MLMultiArray(data) {
+                if let embedding = blobToMLMultiArray(data) {
                     embeddings.append(embedding)
                 }
             }
@@ -342,7 +344,7 @@ class DBHelper {
             
             if let blobPointer = blobPointer {
                 let data = Data(bytes: blobPointer, count: Int(blobSize))
-                if let embedding = try? MLMultiArray(data) {
+                if let embedding = blobToMLMultiArray(data) {
                     embeddings.append((embedding, filename))
                 }
             }
@@ -470,7 +472,7 @@ class DBHelper {
             
             if let blobPointer = blobPointer {
                 let data = Data(bytes: blobPointer, count: Int(blobSize))
-                if let embedding = try? MLMultiArray(data) {
+                if let embedding = blobToMLMultiArray(data) {
                     embeddings.append((id, embedding, filename))
                 }
             }
@@ -505,7 +507,7 @@ class DBHelper {
             
             if let blobPointer = blobPointer {
                 let data = Data(bytes: blobPointer, count: Int(blobSize))
-                if let embedding = try? MLMultiArray(data) {
+                if let embedding = blobToMLMultiArray(data) {
                     embeddings.append((id, embedding, filename))
                 }
             }
@@ -578,7 +580,7 @@ class DBHelper {
                 
                 if let blobPointer = blobPointer {
                     let data = Data(bytes: blobPointer, count: Int(blobSize))
-                    if let embedding = try? MLMultiArray(data) {
+                    if let embedding = blobToMLMultiArray(data) {
                         embeddings.append((embedding, filename))
                     }
                 }
@@ -614,7 +616,7 @@ class DBHelper {
                 
                 if let blobPointer = blobPointer {
                     let data = Data(bytes: blobPointer, count: Int(blobSize))
-                    if let embedding = try? MLMultiArray(data) {
+                    if let embedding = blobToMLMultiArray(data) {
                         if usersEmbeddings[userId] == nil {
                             usersEmbeddings[userId] = []
                         }
