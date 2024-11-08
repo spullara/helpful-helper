@@ -350,30 +350,9 @@ struct MainView: View {
 
     // Add a function to match a face to a user name
     private func matchFaceToUser(_ faceEmbedding: MLMultiArray) -> String? {
-        updateUserEmbeddingIndex()
-        print("Searching for a match...")
-
-        // Load the embeddings and compare them using cosine similarity
-        var best : String? = nil
-        var bestSimilarity = 0.0
-        let embeddings = DBHelper.shared.getAllFaceEmbeddings()
-        for (embedding, identifier) in embeddings {
-            let similarity = calculateCosineSimilarity(embedding1: faceEmbedding, embedding2: embedding)
-            if similarity > bestSimilarity {
-                best = identifier
-                bestSimilarity = similarity
-            }
-        }
-        print("Found \(best) with similarity \(bestSimilarity)")
-
-        let floatArray = convertToArray(faceEmbedding)
-        let searchResults = userEmbeddingIndex.search(vector: floatArray, k: 10)
-        print("Found \(searchResults.map(\.1))")
-        if let topMatch = searchResults.first {
-            let userName = userEmbeddingIndex.getLocalIdentifier(topMatch.0)
-            let similarity = topMatch.1
-            print("Matched face to user: \(userName), similarity: \(similarity)")
-            return userName
+        if let (matchedUser, similarity) = DBHelper.shared.findBestMatchingUser(for: faceEmbedding) {
+            print("Matched face to user: \(matchedUser.name), similarity: \(similarity)")
+            return matchedUser.name
         }
         return nil
     }

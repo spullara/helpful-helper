@@ -147,52 +147,7 @@ class DBHelper {
         let embeddingId = sqlite3_last_insert_rowid(db)
         sqlite3_finalize(statement)
         
-        // Reload the embedding from the database
-        if let reloadedEmbedding = getEmbeddingById(embeddingId) {
-            // Calculate MSE
-            print("Original embedding: \(embedding)")
-            print("Reloaded embedding: \(reloadedEmbedding)")
-        
-            let mse = calculateMSE(original: embedding, reloaded: reloadedEmbedding)
-            print("Mean Square Error between original and reloaded embedding: \(mse)")
-        } else {
-            print("Failed to reload embedding for MSE calculation")
-        }
-        
         return embeddingId
-    }
-    
-    // Helper function to get embedding by ID
-    private func getEmbeddingById(_ id: Int64) -> MLMultiArray? {
-        let sql = "SELECT embedding FROM face_embeddings WHERE id = ?"
-        var statement: OpaquePointer?
-        
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            print("Error preparing statement: \(String(cString: sqlite3_errmsg(db)!))")
-            return nil
-        }
-        
-        sqlite3_bind_int64(statement, 1, id)
-        
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            print("Error fetching embedding: \(String(cString: sqlite3_errmsg(db)!))")
-            sqlite3_finalize(statement)
-            return nil
-        }
-        
-        let blobPointer = sqlite3_column_blob(statement, 0)
-        let blobSize = sqlite3_column_bytes(statement, 0)
-        
-        guard let blobPointer = blobPointer else {
-            print("Error: blob is nil")
-            sqlite3_finalize(statement)
-            return nil
-        }
-        
-        let data = Data(bytes: blobPointer, count: Int(blobSize))
-        sqlite3_finalize(statement)
-        
-        return blobToMLMultiArray(data)
     }
     
     private func blobToMLMultiArray(_ blob: Data) -> MLMultiArray? {
@@ -216,18 +171,6 @@ class DBHelper {
             print("Error creating MLMultiArray: \(error)")
             return nil
         }
-    }
-    // Helper function to calculate Mean Square Error
-    private func calculateMSE(original: MLMultiArray, reloaded: MLMultiArray) -> Double {
-        var sumSquaredDiff: Double = 0
-        let count = original.count
-        
-        for i in 0..<count {
-            let diff = original[i].doubleValue - reloaded[i].doubleValue
-            sumSquaredDiff += diff * diff
-        }
-        
-        return sumSquaredDiff / Double(count)
     }
 
     // New function to add a user
@@ -376,6 +319,7 @@ class DBHelper {
         
         print("Database cleared")
     }
+
     func getAllUsers() -> [User] {
         var users: [User] = []
         let query = "SELECT id, name FROM users"
@@ -421,6 +365,7 @@ class DBHelper {
         }
         sqlite3_finalize(statement)
     }
+
     func associateLastEmbeddingWithUser(userName: String) -> Bool {
         // Get the last face embedding
         let getLastEmbeddingSql = "SELECT id FROM face_embeddings ORDER BY date_created DESC LIMIT 1"
@@ -450,6 +395,7 @@ class DBHelper {
         // Associate the user with the embedding
         return relateUserToEmbedding(userId: userId, embeddingId: embeddingId)
     }
+
     func getUnassociatedEmbeddings() -> [(Int64, MLMultiArray, String)] {
         let sql = """
             SELECT id, embedding, filename
@@ -592,6 +538,39 @@ class DBHelper {
         guard let averageEmbedding = averageEmbeddings(embeddings.map { $0.0 }) else { return nil }
         
         return findClosestEmbedding(target: averageEmbedding, embeddings: embeddings)
+    }
+    
+    func findBestMatchingUser(for targetEmbedding: MLMultiArray) -> (User, Double)? {
+        let query = """
+            SELECT u.id, u.name, fe.embedding
+            FROM users u
+            JOIN user_interactions ui ON u.id = ui.user_id
+            JOIN face_embeddings fe ON ui.embedding_id = fe.id
+        """
+        var statement: OpaquePointer?
+        var bestMatch: (User, Double)? = nil
+        
+        if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let userId = sqlite3_column_int64(statement, 0)
+                let name = String(cString: sqlite3_column_text(statement, 1))
+                let blobPointer = sqlite3_column_blob(statement, 2)
+                let blobSize = sqlite3_column_bytes(statement, 2)
+                
+                if let blobPointer = blobPointer {
+                    let data = Data(bytes: blobPointer, count: Int(blobSize))
+                    if let embedding = blobToMLMultiArray(data) {
+                        let similarity = calculateCosineSimilarity(embedding1: targetEmbedding, embedding2: embedding)
+                        if bestMatch == nil || similarity > bestMatch!.1 {
+                            bestMatch = (User(id: userId, name: name), similarity)
+                        }
+                    }
+                }
+            }
+        }
+        sqlite3_finalize(statement)
+        
+        return bestMatch
     }
     
     func getUsersWithAverageEmbeddings() -> [(User, MLMultiArray)] {
