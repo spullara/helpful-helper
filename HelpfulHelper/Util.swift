@@ -23,8 +23,6 @@ func calculateCosineSimilarity(embedding1: MLMultiArray, embedding2: MLMultiArra
     magnitude1 = sqrt(magnitude1)
     magnitude2 = sqrt(magnitude2)
     
-    print("Magnitude 1: \(magnitude1) Magnitude 2: \(magnitude2) Dot Product: \(dotProduct)")
-
     return dotProduct / (magnitude1 * magnitude2)
 }
 

@@ -45,6 +45,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     private var confidenceAccumulator: (speaking: Double, looking: Double) = (0, 0)
     private var confidenceSampleCount: Int = 0
     @Published var isSpeechActive: Bool = false
+    @Published var probableUser: (name: String, similarity: Double)?
 
     private let systemMessage = """
         You are an AI assistant named "Holly" embodied in a robotic device mounted on a movable dock.
@@ -350,6 +351,37 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                 print("Failed to send automated message: \(error)")
             } else {
                 print("Automated message sent successfully")
+            }
+        }
+    }
+
+    func sendProbableUserMessage(_ probableUser: (name: String, similarity: Double)?) {
+        var userInfo = "We aren't sure who the user might be."
+        if let user = probableUser, user.similarity > 0.9 {
+            userInfo = "The probable user is \(user.name) with a similarity of \(String(format: "%.2f", user.similarity))."
+        }
+        
+        let message = "(This is an automated message: \(userInfo))"
+        
+        let messageEvent: [String: Any] = [
+            "type": "conversation.item.create",
+            "item": [
+                "type": "message",
+                "role": "user",
+                "content": [
+                    [
+                        "type": "input_text",
+                        "text": message
+                    ]
+                ]
+            ]
+        ]
+        
+        sendWebSocketMessage(messageEvent) { error in
+            if let error = error {
+                print("Failed to send probable user message: \(error)")
+            } else {
+                print("Probable user message sent successfully")
             }
         }
     }

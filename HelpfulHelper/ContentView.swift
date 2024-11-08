@@ -49,7 +49,7 @@ struct MainView: View {
     @State private var faceEmbeddings: [MLMultiArray] = []
     @State private var embeddingTimer: Timer?
     @State private var averageFaceEmbedding: MLMultiArray?
-    @State private var totalEmbeddings: Int = 0
+    @State private var firstEmbeddingCaptured = false
 
     // Add a new property for the EmbeddingIndex
     @State private var embeddingIndex = EmbeddingIndex(name: "FaceEmbeddings", dim: 2048)
@@ -164,7 +164,7 @@ struct MainView: View {
                 VStack {
                     Text("Speaking: \(audioCoordinator.averageSpeakingConfidence, specifier: "%.2f")")
                     Text("Looking: \(audioCoordinator.averageLookingAtCameraConfidence, specifier: "%.2f")")
-                    Text("Total Embeddings: \(totalEmbeddings)")
+                    Text("Face Captured: \(firstEmbeddingCaptured)")
                     Text("Probable User: \(probableUser)")
                 }
                 .padding()
@@ -211,7 +211,7 @@ struct MainView: View {
         // Reset state variables
         faceEmbeddings = []
         averageFaceEmbedding = nil
-        totalEmbeddings = 0
+        firstEmbeddingCaptured = false
         embeddingMatchLog = []
 
         // Reinitialize the embedding index
@@ -253,7 +253,16 @@ struct MainView: View {
                 if let embedding = faceIdentifier.findFaces(image: capturedImage) {
                     DispatchQueue.main.async {
                         self.faceEmbeddings.append(embedding)
-                        self.totalEmbeddings = self.faceEmbeddings.count
+                        
+                        // If this is the first embedding captured during this speech session
+                        if !self.firstEmbeddingCaptured {
+                            self.firstEmbeddingCaptured = true
+                            if let matchedUser = self.matchFaceToUser(embedding) {
+                                self.audioCoordinator.sendProbableUserMessage(matchedUser)
+                            } else {
+                                self.audioCoordinator.sendProbableUserMessage(nil)
+                            }
+                        }
                     }
                 }
             }
@@ -287,7 +296,7 @@ struct MainView: View {
                     // Match the face to a user
                     if let matchedUser = matchFaceToUser(averageEmbedding) {
                         DispatchQueue.main.async {
-                            self.probableUser = matchedUser
+                            self.probableUser = matchedUser.name
                         }
                     }
                 }
@@ -349,10 +358,16 @@ struct MainView: View {
     }
 
     // Add a function to match a face to a user name
-    private func matchFaceToUser(_ faceEmbedding: MLMultiArray) -> String? {
+    private func matchFaceToUser(_ faceEmbedding: MLMultiArray) -> (name: String, similarity: Double)? {
         if let (matchedUser, similarity) = DBHelper.shared.findBestMatchingUser(for: faceEmbedding) {
             print("Matched face to user: \(matchedUser.name), similarity: \(similarity)")
-            return matchedUser.name
+            DispatchQueue.main.async {
+                self.probableUser = matchedUser.name
+            }
+            return (name: matchedUser.name, similarity: similarity)
+        }
+        DispatchQueue.main.async {
+            self.probableUser = "Unknown"
         }
         return nil
     }

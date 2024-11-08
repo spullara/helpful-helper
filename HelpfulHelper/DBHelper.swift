@@ -127,8 +127,6 @@ class DBHelper {
         let sql = "INSERT INTO face_embeddings (embedding, filename) VALUES (?, ?)"
         var statement: OpaquePointer?
         
-        print("Original embedding data type: \(embedding.dataType), rawValue: \(embedding.dataType.rawValue)")
-
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             print("Error preparing statement: \(String(cString: sqlite3_errmsg(db)!))")
             return nil
