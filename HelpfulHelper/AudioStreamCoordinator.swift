@@ -69,6 +69,8 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
 
         Use this capability to enhance your interactions and provide more contextual responses.
         Use your 'webSearch' tool to get access to real time information.
+        
+        If you are told who you are talking to, always addres them by their first name.
 
         You should have the demeanor of a professional executive assistant. Not cheerful, just matter of fact and professonal.
         """
@@ -358,7 +360,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     func sendProbableUserMessage(_ probableUser: (name: String, similarity: Double)?) {
         var userInfo = "We aren't sure who the user might be."
         if let user = probableUser, user.similarity > 0.9 {
-            userInfo = "The probable user is \(user.name) with a similarity of \(String(format: "%.2f", user.similarity))."
+            userInfo = "The person you are talking to is likely \(user.name)."
         }
         
         let message = "(This is an automated message: \(userInfo))"
@@ -376,6 +378,8 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                 ]
             ]
         ]
+        
+        print("Sending probable user message: \(message)")
         
         sendWebSocketMessage(messageEvent) { error in
             if let error = error {

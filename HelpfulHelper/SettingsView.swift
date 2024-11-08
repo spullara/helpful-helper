@@ -25,7 +25,7 @@ struct SettingsView: View {
                                 .focused($isNewUserNameFocused)
                             Button("Add") {
                                 if !newUserName.isEmpty {
-                                    if let userId = DBHelper.shared.addUser(name: newUserName) {
+                                    if let _ = DBHelper.shared.addUser(name: newUserName) {
                                         loadUsers()
                                         newUserName = ""
                                     }

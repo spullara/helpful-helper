@@ -299,6 +299,7 @@ struct MainView: View {
                             self.probableUser = matchedUser.name
                         }
                     }
+                    firstEmbeddingCaptured = false
                 }
             } catch {
                 print("Error capturing face image: \(error)")
