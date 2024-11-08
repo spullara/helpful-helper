@@ -70,8 +70,6 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         Use this capability to enhance your interactions and provide more contextual responses.
         Use your 'webSearch' tool to get access to real time information.
         
-        If you are told who you are talking to, always addres them by their first name.
-
         You should have the demeanor of a professional executive assistant. Not cheerful, just matter of fact and professonal.
         """
 
@@ -303,6 +301,31 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
                 print("Cancelling AI speech from the server.")
             }
         }
+        
+        Task {
+            let message = try await takePhotos()
+            print(message)
+            let messageEvent: [String: Any] = [
+                "type": "conversation.item.create",
+                "item": [
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        [
+                            "type": "input_text",
+                            "text": message
+                        ]
+                    ]
+                ]
+            ]
+            sendWebSocketMessage(messageEvent) { error in
+                if let error = error {
+                    print("Failed to send automated message: \(error)")
+                } else {
+                    print("Automated message sent successfully")
+                }
+            }
+        }
     }
 
     // Public methods
@@ -360,7 +383,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     func sendProbableUserMessage(_ probableUser: (name: String, similarity: Double)?) {
         var userInfo = "We aren't sure who the user might be."
         if let user = probableUser, user.similarity > 0.9 {
-            userInfo = "The person you are talking to is likely \(user.name)."
+            userInfo = "The person you are talking to is likely \(user.name). Use their first name when speaking to them."
         }
         
         let message = "(This is an automated message: \(userInfo))"
@@ -390,7 +413,13 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         }
     }
 
-    
+    func takePhotos() async throws -> String {
+        async let frontDescription = try callAnthropicAPI(imageData: try await cameraCoordinator.captureImage(from: "front"), query: "Describe the scene looking towards the user.")
+        async let backDescription = try callAnthropicAPI(imageData: try await cameraCoordinator.captureImage(from: "back"), query: "Describe the scene looking in front of the user.")
+        
+        return "(This is an automated message. Front camera: \(try await frontDescription) and Back camera: \(try await backDescription))"
+    }
+
     private func handleFunctionCall(name: String, callId: String, arguments: String) {
         Task {
             do {

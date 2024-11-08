@@ -110,61 +110,7 @@ class ToolHandler {
             ]
         ]
     }
-    
-    private func callAnthropicAPI(imageData: Data, query: String) async throws -> String {
-        let base64Image = imageData.base64EncodedString()
-        let mediaType = "image/jpeg" // Adjust this if your image format is different
         
-        let apiKey = Env.getValue(forKey: "ANTHROPIC_API_KEY")!
-        let url = URL(string: "https://api.anthropic.com/v1/messages")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let payload: [String: Any] = [
-            "model": "claude-3-5-sonnet-latest",
-            "max_tokens": 1024,
-            "messages": [
-                [
-                    "role": "user",
-                    "content": [
-                        [
-                            "type": "image",
-                            "source": [
-                                "type": "base64",
-                                "media_type": mediaType,
-                                "data": base64Image
-                            ]
-                        ],
-                        [
-                            "type": "text",
-                            "text": query
-                        ]
-                    ]
-                ]
-            ]
-        ]
-        
-        let jsonData = try JSONSerialization.data(withJSONObject: payload)
-        request.httpBody = jsonData
-        
-        let (data, _) = try await URLSession.shared.data(for: request)
-        
-        guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-            throw ToolHandlerError.invalidResponse
-        }
-        
-        guard let content = json["content"] as? [[String: Any]],
-              let firstContent = content.first,
-              let text = firstContent["text"] as? String else {
-            throw ToolHandlerError.missingContent
-        }
-        
-        return text
-    }
-    
     private func handleWebSearch(callId: String, arguments: [String: Any]) async throws -> [String: Any] {
         guard let query = arguments["query"] as? String else {
             throw ToolHandlerError.invalidArguments
@@ -249,4 +195,59 @@ extension Data {
         }
         return str
     }
+}
+
+func callAnthropicAPI(imageData: Data, query: String) async throws -> String {
+    let base64Image = imageData.base64EncodedString()
+    let mediaType = "image/jpeg" // Adjust this if your image format is different
+    
+    let apiKey = Env.getValue(forKey: "ANTHROPIC_API_KEY")!
+    let url = URL(string: "https://api.anthropic.com/v1/messages")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.addValue(apiKey, forHTTPHeaderField: "x-api-key")
+    request.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+    request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+    
+    let payload: [String: Any] = [
+        //"model": "claude-3-5-sonnet-latest",
+        "model": "claude-3-haiku-20240307",
+        "max_tokens": 1024,
+        "messages": [
+            [
+                "role": "user",
+                "content": [
+                    [
+                        "type": "image",
+                        "source": [
+                            "type": "base64",
+                            "media_type": mediaType,
+                            "data": base64Image
+                        ]
+                    ],
+                    [
+                        "type": "text",
+                        "text": query
+                    ]
+                ]
+            ]
+        ]
+    ]
+    
+    let jsonData = try JSONSerialization.data(withJSONObject: payload)
+    request.httpBody = jsonData
+    
+    let (data, _) = try await URLSession.shared.data(for: request)
+    
+    guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+        throw ToolHandlerError.invalidResponse
+    }
+    
+    guard let content = json["content"] as? [[String: Any]],
+            let firstContent = content.first,
+            let text = firstContent["text"] as? String else {
+        throw ToolHandlerError.missingContent
+    }
+    
+    return text
 }

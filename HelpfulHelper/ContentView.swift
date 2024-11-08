@@ -149,7 +149,7 @@ struct MainView: View {
                         .font(.headline)
                     ScrollView {
                         LazyVStack(alignment: .leading) {
-                            ForEach(transcripts, id: \.self) { transcript in
+                            ForEach(transcripts.reversed(), id: \.self) { transcript in
                                 Text(transcript)
                                     .padding(.vertical, 2)
                             }
@@ -178,9 +178,6 @@ struct MainView: View {
         .onReceive(audioCoordinator.$latestTranscript) { newTranscript in
             if !newTranscript.isEmpty {
                 transcripts.append(newTranscript)
-                if transcripts.count > 10 {
-                    transcripts.removeFirst()
-                }
             }
         }
         .onReceive(audioCoordinator.$isSpeechActive) { isSpeechActive in
