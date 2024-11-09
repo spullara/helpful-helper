@@ -335,7 +335,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     private func handleSpeechStopped() {
         print("Speech Stop detected")
         DispatchQueue.main.async {
-            self.x`isSpeechActive = false
+            self.isSpeechActive = false
         }
         calculateAverageConfidence()
         
@@ -388,7 +388,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     }
 
     func sendProbableUserMessage(_ probableUser: (name: String, similarity: Double)?) {
-        var userInfo = "We aren't sure who the user might be."
+        var userInfo = "We aren't sure who the user might be. Might be someone new."
         if let user = probableUser, user.similarity > 0.9 {
             userInfo = "The person you are talking to is likely \(user.name). Use their first name when speaking to them."
         }
