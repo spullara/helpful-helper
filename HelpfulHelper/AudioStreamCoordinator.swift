@@ -64,9 +64,6 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         You have a new tool called 'associateLastFaceWithUser' that allows you to associate the last detected face with a user name.
         Use this tool when you need to remember who someone is or when explicitly asked to associate a face with a name.
 
-        Use your 'observe' tool to gather visual information about your surroundings.
-        This tool allows you to "see" through the cameras and describe what you observe.
-
         Use this capability to enhance your interactions and provide more contextual responses.
         Use your 'webSearch' tool to get access to real time information.
         
@@ -417,7 +414,7 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         async let frontDescription = try callAnthropicAPI(imageData: try await cameraCoordinator.captureImage(from: "front"), query: "Describe the scene looking towards the user.")
         async let backDescription = try callAnthropicAPI(imageData: try await cameraCoordinator.captureImage(from: "back"), query: "Describe the scene looking in front of the user.")
         
-        return "(This is an automated message. Front camera: \(try await frontDescription) and Back camera: \(try await backDescription))"
+        return "(This is an automated message. This is what you see towards the user: \(try await frontDescription). This is what you see in front of the user: \(try await backDescription))"
     }
 
     private func handleFunctionCall(name: String, callId: String, arguments: String) {

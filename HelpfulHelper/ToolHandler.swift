@@ -10,37 +10,37 @@ class ToolHandler {
     
     var toolDefinitions: [[String: Any]] {
         return [
-            [
-                "type": "function",
-                "name": "observe",
-                "description": """
-                Allows the AI to visually perceive its surroundings using the mounted camera.
-                The AI can use this to gather information about the environment, recognize people or objects,
-                and provide more contextual responses. The observation is private to the AI,
-                so it must describe what it sees to the user if asked about the environment.
-                """,
-                "parameters": [
-                    "type": "object",
-                    "properties": [
-                        "query": [
-                            "description": """
-                            The specific aspect or question about the environment that the AI wants to observe.
-                            This can range from general scene description to specific object or person identification.
-                            """,
-                            "type": "string"
-                        ],
-                        "camera": [
-                            "description": """
-                            The camera direction to use for observation, either 'front' or 'back'.
-                            Use 'front' for self-view or when interacting directly with users,
-                            and 'back' for observing the broader environment.
-                            """,
-                            "type": "string"
-                        ]
-                    ],
-                    "required": ["query", "camera"]
-                ]
-            ],
+//            [
+//                "type": "function",
+//                "name": "observe",
+//                "description": """
+//                Allows the AI to visually perceive its surroundings using the mounted camera.
+//                The AI can use this to gather information about the environment, recognize people or objects,
+//                and provide more contextual responses. The observation is private to the AI,
+//                so it must describe what it sees to the user if asked about the environment.
+//                """,
+//                "parameters": [
+//                    "type": "object",
+//                    "properties": [
+//                        "query": [
+//                            "description": """
+//                            The specific aspect or question about the environment that the AI wants to observe.
+//                            This can range from general scene description to specific object or person identification.
+//                            """,
+//                            "type": "string"
+//                        ],
+//                        "camera": [
+//                            "description": """
+//                            The camera direction to use for observation, either 'front' or 'back'.
+//                            Use 'front' for self-view or when interacting directly with users,
+//                            and 'back' for observing the broader environment.
+//                            """,
+//                            "type": "string"
+//                        ]
+//                    ],
+//                    "required": ["query", "camera"]
+//                ]
+//            ],
             [
                 "type": "function",
                 "name": "webSearch",
@@ -59,13 +59,13 @@ class ToolHandler {
             [
                 "type": "function",
                 "name": "associateLastFaceWithUser",
-                "description": "Associates the last detected face embedding with a user name",
+                "description": "Associates the last detected face with a users's name.",
                 "parameters": [
                     "type": "object",
                     "properties": [
                         "userName": [
                             "type": "string",
-                            "description": "The name of the user to associate with the last detected face"
+                            "description": "The name of the user to associate with the face of the user."
                         ]
                     ],
                     "required": ["userName"]
