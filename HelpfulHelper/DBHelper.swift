@@ -95,6 +95,10 @@ class DBHelper {
             
             updateVersion(newVersion: 3)
         }
+
+        if version < 5 {
+            updateVersion(newVersion: 5)
+        }
     }
     
     private func execSQL(sql: String) {
@@ -613,5 +617,100 @@ class DBHelper {
         }
         
         return usersWithAverageEmbeddings
+    }
+
+    private func importPeopleFromCSV() -> Int {
+        let faces = Faces()
+        
+        guard let csvPath = Bundle.main.path(forResource: "people", ofType: "csv"),
+              let csvString = try? String(contentsOfFile: csvPath, encoding: .utf8) else {
+            print("Failed to load people.csv")
+            return 1
+        }
+        
+        let rows = csvString.components(separatedBy: .newlines)
+        
+        var failed = 0
+        
+        lock.withLock {
+            sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+            
+            for row in rows {
+                let columns = row.components(separatedBy: ",")
+                guard columns.count == 3 else { continue }
+                
+                let name = columns[0]
+                let imageName = columns[2]
+                
+                guard let image = loadImage(named: imageName) else {
+                    print("Failed to load image: \(imageName)")
+                    failed += 1
+                    continue
+                }
+                
+                guard let faceEmbedding = faces.findFaces(image: image) else {
+                    print("No face found in image: \(imageName)")
+                    failed += 1
+                    continue
+                }
+                
+                if let userId = addUser(name: name) {
+                    if let embeddingId = storeFaceEmbedding(faceEmbedding, filename: imageName) {
+                        if !relateUserToEmbedding(userId: userId, embeddingId: embeddingId) {
+                            print("Failed to relate user to embedding: \(name)")
+                            failed += 1
+                        }
+                    } else {
+                        failed += 1
+                        print("Failed to store face embedding: \(name)")
+                    }
+                } else {
+                    failed += 1
+                    print("Failed to add user: \(name)")
+                }
+            }
+            
+            sqlite3_exec(db, "COMMIT", nil, nil, nil)
+        }
+        return failed
+    }
+    
+    private func loadImage(named imageName: String) -> UIImage? {
+        // Try loading from the main bundle
+        if let image = UIImage(named: imageName) {
+            return image
+        }
+        
+        // Try loading from the "images" directory
+        if let imagePath = Bundle.main.path(forResource: imageName, ofType: nil, inDirectory: "images"),
+           let image = UIImage(contentsOfFile: imagePath) {
+            return image
+        }
+        
+        // Try loading without specifying the directory
+        if let imagePath = Bundle.main.path(forResource: imageName, ofType: nil),
+           let image = UIImage(contentsOfFile: imagePath) {
+            return image
+        }
+        
+        // If all attempts fail, print debug information
+        print("Failed to load image: \(imageName)")
+        print("Bundle path: \(Bundle.main.bundlePath)")
+        print("Resource path: \(Bundle.main.resourcePath ?? "nil")")
+        
+        // List contents of the bundle
+        if let resourcePath = Bundle.main.resourcePath {
+            do {
+                let contents = try FileManager.default.contentsOfDirectory(atPath: resourcePath)
+                print("Bundle contents:")
+                for item in contents {
+                    print("  \(item)")
+                }
+            } catch {
+                print("Error listing bundle contents: \(error)")
+            }
+        }
+        
+        return nil
     }
 }
