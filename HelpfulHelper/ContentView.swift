@@ -61,6 +61,10 @@ struct MainView: View {
     // Add a new state variable for the probable user
     @State private var probableUser: String = "Unknown"
 
+    // Add these new properties
+    @State private var backCameraFaceTimer: Timer?
+    @State private var bestMatchName: String = "No face detected"
+
     init() {
         let cameraCoordinator = CameraSessionCoordinator()
         _sessionCoordinator = StateObject(wrappedValue: cameraCoordinator)
@@ -170,6 +174,12 @@ struct MainView: View {
                 .padding()
                 .background(Color.gray.opacity(0.1))
                 .cornerRadius(12)
+
+                // Add this new Text view to display the best match name
+                Text("Back Camera Face: \(bestMatchName)")
+                    .padding()
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(12)
             }
             .padding()
 
@@ -189,6 +199,13 @@ struct MainView: View {
         }
         .onAppear {
             loadFaceEmbeddings()
+
+            // Start the back camera face detection timer
+            startBackCameraFaceDetection()
+        }
+        .onDisappear {
+            // Stop the timer when the view disappears
+            backCameraFaceTimer?.invalidate()
         }
     }
 
@@ -368,6 +385,40 @@ struct MainView: View {
             self.probableUser = "Unknown"
         }
         return nil
+    }
+
+    // Add this new function to start the back camera face detection
+    private func startBackCameraFaceDetection() {
+        backCameraFaceTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Task {
+                await findBackCameraFace()
+            }
+        }
+    }
+
+    // Add this new function to find faces in the back camera image
+    private func findBackCameraFace() async {
+        do {
+            let capturedImage = try await sessionCoordinator.captureImage(from: "back")
+            if let image = UIImage(data: capturedImage),
+               let embedding = faceIdentifier.findFaces(image: image) {
+                if let matchedUser = matchFaceToUser(embedding) {
+                    DispatchQueue.main.async {
+                        self.bestMatchName = matchedUser.name
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.bestMatchName = "Unknown face"
+                    }
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.bestMatchName = "No face detected"
+                }
+            }
+        } catch {
+            print("Error capturing back camera image: \(error)")
+        }
     }
 }
 
