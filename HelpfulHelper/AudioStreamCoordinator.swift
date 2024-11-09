@@ -153,7 +153,9 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         guard !isSessionActive else { return }
         
         setupWebSocket()
-        isSessionActive = true
+        DispatchQueue.main.async {
+            self.isSessionActive = true
+        }
     }
     
     func endSession() {
@@ -161,7 +163,9 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
         
         websocket?.cancel(with: .goingAway, reason: nil)
         websocket = nil
-        isSessionActive = false
+        DispatchQueue.main.async {
+            self.isSessionActive = false
+        }
         stopRecording()
     }
     
@@ -280,7 +284,9 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
 
     private func handleSpeechStarted() {
         print("Speech Start detected")
-        isSpeechActive = true
+        DispatchQueue.main.async {
+            self.isSpeechActive = true
+        }
         confidenceAccumulator = (0, 0)
         confidenceSampleCount = 0
         
@@ -328,7 +334,9 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     // Public methods
     private func handleSpeechStopped() {
         print("Speech Stop detected")
-        isSpeechActive = false
+        DispatchQueue.main.async {
+            self.x`isSpeechActive = false
+        }
         calculateAverageConfidence()
         
         // Send the automated message
@@ -344,10 +352,12 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
 
     private func calculateAverageConfidence() {
         guard confidenceSampleCount > 0 else { return }
-        averageSpeakingConfidence = confidenceAccumulator.speaking / Double(confidenceSampleCount)
-        averageLookingAtCameraConfidence = confidenceAccumulator.looking / Double(confidenceSampleCount)
-        print("Average Speaking Confidence: \(averageSpeakingConfidence)")
-        print("Average Looking at Camera Confidence: \(averageLookingAtCameraConfidence)")
+        DispatchQueue.main.async {
+            self.averageSpeakingConfidence = self.confidenceAccumulator.speaking / Double(self.confidenceSampleCount)
+            self.averageLookingAtCameraConfidence = self.confidenceAccumulator.looking / Double(self.confidenceSampleCount)
+            print("Average Speaking Confidence: \(self.averageSpeakingConfidence)")
+            print("Average Looking at Camera Confidence: \(self.averageLookingAtCameraConfidence)")
+        }
     }
     private func sendAutomatedMessage() {
         let message = """
@@ -455,8 +465,8 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     // Public methods
     func startRecording() {
         guard isSessionActive, !isRecording else { return }
-        isRecording = true
         DispatchQueue.main.async {
+            self.isRecording = true
             UIApplication.shared.isIdleTimerDisabled = true // Prevent screen from sleeping
         }
         try? audioManager?.startRecording()
@@ -464,8 +474,8 @@ class AudioStreamCoordinator: NSObject, ObservableObject {
     
     func stopRecording() {
         guard isRecording else { return }
-        isRecording = false
         DispatchQueue.main.async {
+            self.isRecording = false
             UIApplication.shared.isIdleTimerDisabled = false // Allow screen to sleep again
         }
         audioManager?.stopRecording()
