@@ -266,12 +266,12 @@ struct MainView: View {
             }) {
                 if let embedding = faceIdentifier.findFaces(image: capturedImage) {
                     DispatchQueue.main.async {
-                        self.faceEmbeddings.append(embedding)
+                        self.faceEmbeddings.append(embedding.0)
                         
                         // If this is the first embedding captured during this speech session
                         if !self.firstEmbeddingCaptured {
                             self.firstEmbeddingCaptured = true
-                            if let matchedUser = self.matchFaceToUser(embedding) {
+                            if let matchedUser = self.matchFaceToUser(embedding.0) {
                                 self.audioCoordinator.sendProbableUserMessage(matchedUser)
                             } else {
                                 self.audioCoordinator.sendProbableUserMessage(nil)
@@ -402,7 +402,7 @@ struct MainView: View {
             let capturedImage = try await sessionCoordinator.captureImage(from: "back")
             if let image = UIImage(data: capturedImage),
                let embedding = faceIdentifier.findFaces(image: image) {
-                if let matchedUser = matchFaceToUser(embedding) {
+                if let matchedUser = matchFaceToUser(embedding.0) {
                     DispatchQueue.main.async {
                         self.bestMatchName = matchedUser.name
                     }

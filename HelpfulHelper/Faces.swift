@@ -12,7 +12,7 @@ class Faces {
         self.facesModel = model
     }
 
-    func findFaces(image: UIImage) -> MLMultiArray? {
+    func findFaces(image: UIImage) -> (MLMultiArray, UIImage)? {
         var faces: [(UIImage, MLMultiArray)] = []
         let faceReq = VNDetectFaceRectanglesRequest()
 
@@ -40,7 +40,7 @@ class Faces {
         // Only return the biggest face
         faces.sort { $0.0.size.width * $0.0.size.height > $1.0.size.width * $1.0.size.height }
 
-        return faces.first?.1
+        return faces.first.map { ($0.1, $0.0) }
     }
 
 

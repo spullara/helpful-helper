@@ -96,9 +96,7 @@ class DBHelper {
             updateVersion(newVersion: 3)
         }
 
-        if version < 5 {
-            updateVersion(newVersion: 5)
-        }
+        importPeopleFromCSV()
     }
     
     private func execSQL(sql: String) {
@@ -324,7 +322,7 @@ class DBHelper {
 
     func getAllUsers() -> [User] {
         var users: [User] = []
-        let query = "SELECT id, name FROM users"
+        let query = "SELECT id, name FROM users ORDER BY name ASC"
         var statement: OpaquePointer?
         
         if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
@@ -489,6 +487,7 @@ class DBHelper {
             FROM users u
             LEFT JOIN user_interactions ui ON u.id = ui.user_id
             GROUP BY u.id
+            ORDER BY u.name
         """
         var statement: OpaquePointer?
         
@@ -642,27 +641,40 @@ class DBHelper {
                 let name = columns[0]
                 let imageName = columns[2]
                 
+                // Check if the user already exists
+                if let existingUser = getUserByName(name) {
+                    print("User \(name) already exists with ID: \(existingUser.id)")
+                    continue
+                }
+                
                 guard let image = loadImage(named: imageName) else {
                     print("Failed to load image: \(imageName)")
                     failed += 1
                     continue
                 }
                 
-                guard let faceEmbedding = faces.findFaces(image: image) else {
+                guard let (faceEmbedding, faceCroppedImage) = faces.findFaces(image: image) else {
                     print("No face found in image: \(imageName)")
                     failed += 1
                     continue
                 }
                 
                 if let userId = addUser(name: name) {
-                    if let embeddingId = storeFaceEmbedding(faceEmbedding, filename: imageName) {
-                        if !relateUserToEmbedding(userId: userId, embeddingId: embeddingId) {
-                            print("Failed to relate user to embedding: \(name)")
+                    // Save the cropped face image
+                    let croppedFileName = "cropped_\(imageName)"
+                    if let croppedFilePath = saveImage(faceCroppedImage, withName: croppedFileName) {
+                        if let embeddingId = storeFaceEmbedding(faceEmbedding, filename: croppedFilePath) {
+                            if !relateUserToEmbedding(userId: userId, embeddingId: embeddingId) {
+                                print("Failed to relate user to embedding: \(name)")
+                                failed += 1
+                            }
+                        } else {
                             failed += 1
+                            print("Failed to store face embedding: \(name)")
                         }
                     } else {
                         failed += 1
-                        print("Failed to store face embedding: \(name)")
+                        print("Failed to save cropped face image: \(name)")
                     }
                 } else {
                     failed += 1
@@ -712,5 +724,38 @@ class DBHelper {
         }
         
         return nil
+    }
+    
+    private func getUserByName(_ name: String) -> User? {
+        let query = "SELECT id, name FROM users WHERE name = ?"
+        var statement: OpaquePointer?
+        
+        if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_text(statement, 1, (name as NSString).utf8String, -1, nil)
+            
+            if sqlite3_step(statement) == SQLITE_ROW {
+                let id = sqlite3_column_int64(statement, 0)
+                let name = String(cString: sqlite3_column_text(statement, 1))
+                sqlite3_finalize(statement)
+                return User(id: id, name: name)
+            }
+        }
+        sqlite3_finalize(statement)
+        return nil
+    }
+    
+    private func saveImage(_ image: UIImage, withName name: String) -> String? {
+        guard let data = image.jpegData(compressionQuality: 0.8) else { return nil }
+        let filename = name
+        let fileManager = FileManager.default
+        do {
+            let documentsDirectory = try fileManager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            let fileURL = documentsDirectory.appendingPathComponent(filename)
+            try data.write(to: fileURL)
+            return filename
+        } catch {
+            print("Error saving image: \(error)")
+            return nil
+        }
     }
 }
